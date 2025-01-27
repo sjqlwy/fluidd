@@ -1,7 +1,7 @@
 <template>
   <div>
     <output-pin
-      v-if="item.type === 'output_pin'"
+      v-if="pinTypes.includes(item.type)"
       :key="item.key"
       :pin="item"
     />
@@ -13,7 +13,7 @@
     />
 
     <output-led
-      v-if="item.type === 'neopixel' || item.type === 'dotstar'"
+      v-if="ledTypes.includes(item.type)"
       :key="item.key"
       :led="item"
     />
@@ -25,7 +25,7 @@ import { Component, Vue, Prop } from 'vue-property-decorator'
 import OutputFan from '@/components/widgets/outputs/OutputFan.vue'
 import OutputPin from '@/components/widgets/outputs/OutputPin.vue'
 import OutputLed from '@/components/widgets/outputs/OutputLed.vue'
-// import { Fan, OutputPin } from '@/store/printer/types'
+import type { Fan, Led, OutputPin as IOutputPin } from '@/store/printer/types'
 
 @Component({
   components: {
@@ -36,7 +36,15 @@ import OutputLed from '@/components/widgets/outputs/OutputLed.vue'
 })
 export default class Outputs extends Vue {
   @Prop({ type: Object, required: true })
-  item!: object
+  readonly item!: Fan | Led | IOutputPin
+
+  get pinTypes () {
+    return [
+      'output_pin',
+      'pwm_tool',
+      'pwm_cycle_time'
+    ]
+  }
 
   get fanTypes () {
     return [
@@ -45,6 +53,16 @@ export default class Outputs extends Vue {
       'heater_fan',
       'fan_generic',
       'fan'
+    ]
+  }
+
+  get ledTypes () {
+    return [
+      'led',
+      'neopixel',
+      'dotstar',
+      'pca9533',
+      'pca9632'
     ]
   }
 }

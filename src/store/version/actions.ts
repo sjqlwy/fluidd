@@ -1,7 +1,7 @@
-import { ActionTree } from 'vuex'
-import consola from 'consola'
-import { VersionState } from './types'
-import { RootState } from '../types'
+import type { ActionTree } from 'vuex'
+import { consola } from 'consola'
+import type { VersionState } from './types'
+import type { RootState } from '../types'
 import { SocketActions } from '@/api/socketActions'
 import i18n from '@/plugins/i18n'
 
@@ -24,7 +24,6 @@ export const actions: ActionTree<VersionState, RootState> = {
    * Inits any file config we may have.
    */
   async onUpdateStatus ({ commit, dispatch, getters }, payload) {
-    commit('setRefreshing', false)
     commit('setUpdateStatus', payload)
 
     if (getters.hasUpdates) {
@@ -39,14 +38,6 @@ export const actions: ActionTree<VersionState, RootState> = {
     } else {
       dispatch('notifications/clearNotification', 'updates-available', { root: true })
     }
-  },
-
-  /**
-   * Tells us if moonraker is in the middle of refreshing
-   * the version state.
-   */
-  async refreshing ({ commit }, payload) {
-    commit('setRefreshing', payload)
   },
 
   /**
@@ -84,5 +75,10 @@ export const actions: ActionTree<VersionState, RootState> = {
   async onUpdatedSystem (_, payload) {
     consola.debug('Finished updating system', payload)
     SocketActions.machineUpdateStatus()
+  },
+
+  async onUpdatedAll (_, payload) {
+    consola.debug('Finished updating all services', payload)
+    window.location.reload()
   }
 }

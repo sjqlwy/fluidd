@@ -1,108 +1,112 @@
 import Vue from 'vue'
 import { SocketActions } from '@/api/socketActions'
 import { Component } from 'vue-property-decorator'
-import { Waits } from '@/globals'
+import type { Macro } from '@/store/macros/types'
+import type { Device } from '@/store/power/types'
 
 @Component
-export default class UtilsMixin extends Vue {
-  waits = Waits
-
-  get authenticated () {
-    const auth = this.$store.getters['auth/getAuthenticated']
-    return auth
+export default class StateMixin extends Vue {
+  get appReady (): boolean {
+    return this.$store.getters['config/getAppReady'] as boolean
   }
 
-  get socketConnected () {
-    return this.$store.getters['socket/getConnectionState']
+  get authenticated (): boolean {
+    return this.$store.getters['auth/getAuthenticated'] as boolean
   }
 
-  get apiConnected () {
-    return this.$store.getters['socket/getApiConnected']
+  get socketConnected (): boolean {
+    return this.$store.getters['socket/getConnectionState'] as boolean
   }
 
-  get socketConnecting () {
-    return this.$store.getters['socket/getConnectingState']
+  get apiConnected (): boolean {
+    return this.$store.getters['socket/getApiConnected'] as boolean
   }
 
-  get klippyReady () {
-    return this.$store.getters['printer/getklippyReady']
+  get socketConnecting (): boolean {
+    return this.$store.getters['socket/getConnectingState'] as boolean
   }
 
-  get klippyConnected () {
-    const server = this.$store.getters['server/getInfo']
-    return server.klippy_connected
+  get klippyReady (): boolean {
+    return this.$store.getters['printer/getKlippyReady'] as boolean
   }
 
-  get hasWarnings () {
-    return this.$store.getters['printer/getHasWarnings']
+  get klippyConnected (): boolean {
+    return this.$store.getters['printer/getKlippyConnected'] as boolean
   }
 
-  get klippyState () {
-    return this.$store.getters['printer/getKlippyState']
+  get hasWarnings (): boolean {
+    return this.$store.getters['printer/getHasWarnings'] as boolean
   }
 
-  get klippyStateMessage () {
-    return this.$store.getters['printer/getKlippyStateMessage']
+  get klippyState (): string {
+    return this.$store.getters['printer/getKlippyState'] as string
+  }
+
+  get klippyStateMessage (): string {
+    return this.$store.getters['printer/getKlippyStateMessage'] as string
   }
 
   // Return the printer state
-  get printerState () {
-    return this.$store.getters['printer/getPrinterState']
+  get printerState (): string {
+    return this.$store.getters['printer/getPrinterState'] as string
   }
 
   // Returns a boolean indicating if the printer is busy.
   get printerBusy () {
     const printerState = this.printerState.toLowerCase()
-    if (
+
+    return (
       printerState === 'printing' ||
       printerState === 'paused' ||
       printerState === 'busy'
-    ) {
-      return true
-    }
-    return false
+    )
   }
 
   // Returns a boolean indicating if the printer is paused.
-  get printerPaused () {
-    const printerState = this.printerState.toLowerCase()
-    if (
-      printerState === 'paused'
-    ) {
-      return true
-    }
-    return false
+  get printerPaused (): boolean {
+    return this.printerState.toLowerCase() === 'paused'
   }
 
   /**
    * Returns a boolean indicating of the printer is printing.
    * (versus busy in some other way...)
    */
-  get printerPrinting () {
-    if (this.printerState === 'printing') return true
-    return false
+  get printerPrinting (): boolean {
+    return this.printerState.toLowerCase() === 'printing'
+  }
+
+  get printerPoweredOff (): boolean {
+    if (this.klippyConnected) {
+      return false
+    }
+
+    const printerPowerDevice: string = this.$store.state.config.uiSettings.general.printerPowerDevice ?? 'printer'
+
+    const device = this.$store.getters['power/getDeviceByName'](printerPowerDevice) as Device | undefined
+
+    return device?.status === 'off'
   }
 
   /**
    * Indicates if we have a valid wait(s).
    * Supports a single string or a list of.
    */
-  hasWait (wait: string | string[]) {
-    return this.$store.getters['wait/hasWait'](wait)
+  hasWait (wait: string | string[]): boolean {
+    return this.$store.getters['wait/hasWait'](wait) as boolean
   }
 
   /**
    * Indicates if we have any waits.
    */
-  get hasWaits () {
-    return this.$store.getters['wait/hasWaits']
+  get hasWaits (): boolean {
+    return this.$store.getters['wait/hasWaits'] as boolean
   }
 
   /**
    * Indicates if we have any waits prefixed by.
    */
-  hasWaitsBy (prefix: string) {
-    return this.$store.getters['wait/hasWaitsBy'](prefix)
+  hasWaitsBy (prefix: string): boolean {
+    return this.$store.getters['wait/hasWaitsBy'](prefix) as boolean
   }
 
   /**
@@ -113,21 +117,82 @@ export default class UtilsMixin extends Vue {
     this.addConsoleEntry(gcode)
   }
 
+  sendMoveGcode (movement: { X?: number, Y?: number, Z?: number }, rate: number, absolute = false, wait?: string) {
+    const macro = this.$store.getters['macros/getMacroByName']('_CLIENT_LINEAR_MOVE') as Macro | undefined
+
+    const paramSeparator = macro
+      ? '='
+      : ''
+    const movementGcode = Object.entries(movement)
+      .map(([key, value]) => `${key}${paramSeparator}${value}`)
+      .join(' ')
+
+    const gcode = macro
+      ? `${macro.name.toUpperCase()} ${movementGcode} F=${rate * 60}${absolute ? ' ABSOLUTE=1' : ''}`
+      : `SAVE_GCODE_STATE NAME=_ui_movement
+G9${absolute ? 0 : 1}
+G1 ${movementGcode} F${rate * 60}
+RESTORE_GCODE_STATE NAME=_ui_movement`
+
+    this.sendGcode(gcode, wait)
+  }
+
+  sendExtrudeGcode (amount: number, rate: number, wait?: string) {
+    const macro = this.$store.getters['macros/getMacroByName']('_CLIENT_LINEAR_MOVE') as Macro | undefined
+
+    const gcode = macro
+      ? `${macro.name.toUpperCase()} E=${amount} F=${rate * 60}`
+      : `SAVE_GCODE_STATE NAME=_ui_retract
+M83
+G1 E${amount} F${rate * 60}
+RESTORE_GCODE_STATE NAME=_ui_retract`
+
+    this.sendGcode(gcode, wait)
+  }
+
   addConsoleEntry (message: string) {
     this.$store.dispatch('console/onAddConsoleEntry', { message, type: 'command' })
   }
 
   async emergencyStop () {
-    const confirmOnEstop = this.$store.state.config.uiSettings.general.confirmOnEstop
-    let res: boolean | undefined = true
-    if (confirmOnEstop) {
-      res = await this.$confirm(
-        this.$tc('app.general.simple_form.msg.confirm'),
+    const confirmOnEstop: boolean = this.$store.state.config.uiSettings.general.confirmOnEstop
+
+    const result = (
+      !confirmOnEstop ||
+      await this.$confirm(
+        this.$tc('app.general.simple_form.msg.confirm_emergency_stop'),
         { title: this.$tc('app.general.label.confirm'), color: 'card-heading', icon: '$error' }
       )
-    }
-    if (res) {
+    )
+
+    if (result) {
       SocketActions.printerEmergencyStop()
     }
+  }
+
+  async cancelPrint () {
+    const result = await this.$confirm(
+      this.$tc('app.general.simple_form.msg.confirm_cancel_print'),
+      { title: this.$tc('app.general.label.confirm'), color: 'card-heading', icon: '$error' }
+    )
+
+    if (result) {
+      SocketActions.printerPrintCancel()
+      this.addConsoleEntry('CANCEL_PRINT')
+    }
+  }
+
+  pausePrint () {
+    SocketActions.printerPrintPause()
+    this.addConsoleEntry('PAUSE')
+  }
+
+  resumePrint () {
+    SocketActions.printerPrintResume()
+    this.addConsoleEntry('RESUME')
+  }
+
+  homeAll () {
+    this.sendGcode('G28', this.$waits.onHomeAll)
   }
 }

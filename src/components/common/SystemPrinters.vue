@@ -5,7 +5,7 @@
     <template v-for="(instance, index) in instances">
       <v-list-item
         :key="index"
-        color="primary"
+        class="instance-item"
         :class="{ 'v-item--active v-list-item--active': instance.active }"
         @click.stop="activateInstance(instance)"
       >
@@ -18,11 +18,9 @@
         <v-list-item-action v-if="!instance.active">
           <app-btn
             icon
-            small
-            color=""
             @click.stop="removeInstance(instance)"
           >
-            <v-icon small>
+            <v-icon dense>
               $delete
             </v-icon>
           </app-btn>
@@ -52,19 +50,16 @@
 </template>
 
 <script lang="ts">
-import { Component, Mixins } from 'vue-property-decorator'
-import { InitConfig, InstanceConfig } from '@/store/config/types'
+import { Component, Mixins, Watch } from 'vue-property-decorator'
+import type { InstanceConfig } from '@/store/config/types'
 import StateMixin from '@/mixins/state'
 import { appInit } from '@/init'
-import { Waits } from '@/globals'
 
 @Component({})
 export default class SystemPrinters extends Mixins(StateMixin) {
-  waits = Waits
-
   instanceDialogOpen = false
 
-  get instanceName () {
+  get instanceName (): string {
     return this.$store.state.config.uiSettings.general.instanceName
   }
 
@@ -72,22 +67,31 @@ export default class SystemPrinters extends Mixins(StateMixin) {
     return this.$store.getters['config/getInstances']
   }
 
-  mounted () {
-    // If we have no api's configured at all, open the dialog.
-    if (this.$store.state.config.apiUrl === '') {
-      this.instanceDialogOpen = true
+  @Watch('appReady')
+  onAppReady (value: boolean) {
+    if (value) {
+      if (this.$store.state.config.apiUrl === '') {
+        this.instanceDialogOpen = true
+      }
     }
   }
 
-  removeInstance (instance: InstanceConfig) {
-    this.$store.dispatch('config/removeInstance', instance)
+  async removeInstance (instance: InstanceConfig) {
+    const result = await this.$confirm(
+      this.$t('app.general.simple_form.msg.confirm_remove_printer', { name: instance.name }).toString(),
+      { title: this.$tc('app.general.label.confirm'), color: 'card-heading', icon: '$error' }
+    )
+
+    if (result) {
+      this.$store.dispatch('config/removeInstance', instance)
+    }
   }
 
   addInstanceDialog () {
     this.instanceDialogOpen = true
   }
 
-  activateInstance (instance: InstanceConfig) {
+  async activateInstance (instance: InstanceConfig) {
     // Close the drawer
     this.$emit('click')
     if (!instance.active) {
@@ -95,23 +99,22 @@ export default class SystemPrinters extends Mixins(StateMixin) {
       this.$socket.close()
 
       // Re-init the app.
-      appInit(instance, this.$store.state.config.hostConfig)
-        .then((config: InitConfig) => {
-          // Reconnect the socket with the new instance url.
-          if (config.apiConfig.socketUrl && config.apiConnected && config.apiAuthenticated) {
-            this.$socket.connect(config.apiConfig.socketUrl)
-          }
-        })
+      const config = await appInit(instance, this.$store.state.config.hostConfig)
+
+      // Reconnect the socket with the new instance url.
+      if (config.apiConfig.socketUrl && config.apiConnected && config.apiAuthenticated) {
+        this.$socket.connect(config.apiConfig.socketUrl)
+      }
     }
   }
 }
 </script>
 
 <style lang="scss" scoped>
-  ::v-deep .instance-item .v-list-item__action  {
-    margin: 6px 0;
+  :deep(.v-list-item__action) {
+    margin: 6px -6px 6px 0;
   }
-  ::v-deep .v-list-item--active::before {
+  :deep(.v-list-item--active::before) {
     opacity: 0.08;
   }
 </style>

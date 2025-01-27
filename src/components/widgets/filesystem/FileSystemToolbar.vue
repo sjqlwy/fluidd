@@ -15,18 +15,17 @@
       bottom
     >
       <template #activator="{ on, attrs }">
-        <v-btn
+        <app-btn
           v-bind="attrs"
-          fab
+          icon
           text
-          small
           color="warning"
           v-on="on"
         >
           <v-icon color="warning">
             $error
           </v-icon>
-        </v-btn>
+        </app-btn>
       </template>
       <slot>
         <span>{{ $t('app.file_system.tooltip.low_on_space') }}</span>
@@ -38,39 +37,61 @@
       bottom
     >
       <template #activator="{ on, attrs }">
-        <v-btn
+        <app-btn
           v-bind="attrs"
-          fab
+          icon
           text
-          small
           color="error"
           v-on="on"
         >
           <v-icon color="error">
             $warning
           </v-icon>
-        </v-btn>
+        </app-btn>
       </template>
       <slot>
         <span>{{ $t('app.file_system.tooltip.root_disabled', { root }) }}</span>
       </slot>
     </v-tooltip>
 
+    <app-thumbnail-size
+      v-if="['gcodes', 'timelapse'].includes(root)"
+      v-model="thumbnailSize"
+    />
+
     <app-column-picker
-      v-if="headers && rootProperties.canConfigure"
+      v-if="headers && canConfigure"
       :key-name="`${root}_${name}`"
       :headers="headers"
     />
 
+    <div>
+      <v-tooltip bottom>
+        <template #activator="{ on, attrs }">
+          <v-btn
+            v-bind="attrs"
+            :disabled="disabled"
+            icon
+            text
+            @click="$emit('go-to-file')"
+            v-on="on"
+          >
+            <v-icon>$magnify</v-icon>
+          </v-btn>
+        </template>
+        <span>{{ $t('app.general.btn.go_to_file') }}</span>
+      </v-tooltip>
+    </div>
+
     <file-system-filter-menu
-      v-if="!readonly && root === 'gcodes' && supportsHistoryComponent"
+      v-if="hasFilterTypes"
       :root="root"
       :disabled="disabled"
       @change="$emit('filter', $event)"
     />
 
-    <file-system-menu
-      v-if="!readonly || canCreateDirectory"
+    <file-system-add-menu
+      v-if="!readonly"
       :root="root"
       :disabled="disabled"
       @add-file="$emit('add-file')"
@@ -78,39 +99,46 @@
       @upload="handleUpload"
     />
 
-    <v-btn
-      :disabled="disabled"
-      fab
-      small
-      text
-      @click="$emit('refresh')"
-    >
-      <v-icon>$refresh</v-icon>
-    </v-btn>
+    <div>
+      <v-tooltip bottom>
+        <template #activator="{ on, attrs }">
+          <v-btn
+            v-bind="attrs"
+            :disabled="disabled"
+            icon
+            text
+            @click="$emit('refresh')"
+            v-on="on"
+          >
+            <v-icon>$refresh</v-icon>
+          </v-btn>
+        </template>
+        <span>{{ $t('app.general.btn.refresh') }}</span>
+      </v-tooltip>
+    </div>
 
     <div
       style="max-width: 160px;"
       class="ml-1"
     >
       <v-text-field
-        v-model="textSearch"
+        v-model="searchModel"
         :disabled="disabled"
         outlined
         dense
         single-line
         hide-details
         append-icon="$magnify"
-        @keyup="$emit('update:search', textSearch);"
       />
     </div>
 
     <template
-      v-if="roots.length > 1"
+      v-if="roots && roots.length > 1"
       #extension
     >
-      <v-tabs>
+      <v-tabs show-arrows>
         <v-tab
-          v-for="(root, index) in registeredRoots"
+          v-for="(root, index) in roots"
           :key="index"
           @change="$emit('root-change', root)"
         >
@@ -122,57 +150,60 @@
 </template>
 
 <script lang="ts">
-import { Component, Prop, Mixins } from 'vue-property-decorator'
+import { Component, Prop, Mixins, PropSync } from 'vue-property-decorator'
 import StatesMixin from '@/mixins/state'
-import FileSystemMenu from './FileSystemMenu.vue'
+import FileSystemAddMenu from './FileSystemAddMenu.vue'
 import FileSystemFilterMenu from './FileSystemFilterMenu.vue'
-import { AppTableHeader } from '@/types'
+import type { AppTableHeader } from '@/types'
+import type { RootProperties } from '@/store/files/types'
 
 @Component({
   components: {
-    FileSystemMenu,
+    FileSystemAddMenu,
     FileSystemFilterMenu
   }
 })
 export default class FileSystemToolbar extends Mixins(StatesMixin) {
   // The currently active root.
   @Prop({ type: String, required: true })
-  root!: string
+  readonly root!: string
 
-  @Prop({ type: String, required: false })
-  name!: string;
+  @Prop({ type: String, required: true })
+  readonly name!: string
 
   // Can be a list of roots, or a single root.
-  @Prop({ type: Array, required: false })
-  roots!: string[];
+  @Prop({ type: Array<string> })
+  readonly roots?: string[]
 
   // Currently defined list of headers.
-  @Prop({ type: Array, required: false })
-  headers!: AppTableHeader[];
+  @Prop({ type: Array<AppTableHeader> })
+  readonly headers?: AppTableHeader[]
 
   // The current path
-  @Prop({ type: String, required: false })
-  path!: string;
+  @Prop({ type: String })
+  readonly path!: string
 
   // If the controls are disabled or not.
-  @Prop({ type: Boolean, default: false })
-  disabled!: boolean
+  @Prop({ type: Boolean })
+  readonly disabled?: boolean
 
   // If the fs is loading or not.
-  @Prop({ type: Boolean, default: false })
-  loading!: boolean
+  @Prop({ type: Boolean })
+  readonly loading?: boolean
 
-  @Prop({ type: String, default: '' })
-  search!: string
-
-  textSearch = ''
+  @PropSync('search', { type: String, default: '' })
+  searchModel!: string
 
   get readonly () {
-    return this.$store.getters['files/getRootProperties'](this.root).readonly
+    return this.rootProperties.readonly
   }
 
-  get canCreateDirectory () {
-    return this.$store.getters['files/getRootProperties'](this.root).canCreateDirectory
+  get canConfigure () {
+    return this.rootProperties.canConfigure
+  }
+
+  get hasFilterTypes () {
+    return this.rootProperties.filterTypes.length > 0
   }
 
   get lowOnSpace () {
@@ -180,22 +211,21 @@ export default class FileSystemToolbar extends Mixins(StatesMixin) {
     return this.$store.getters['files/getLowOnSpace']
   }
 
-  get supportsHistoryComponent () {
-    return this.$store.getters['server/componentSupport']('history')
-  }
-
   // Properties of the current root.
-  get rootProperties () {
-    return this.$store.getters['files/getRootProperties'](this.root)
+  get rootProperties (): RootProperties {
+    return this.$store.getters['files/getRootProperties'](this.root) as RootProperties
   }
 
-  // Only show roots that have been registered.
-  get registeredRoots () {
-    return this.roots.filter(r => this.$store.state.server.info.registered_directories.includes(r))
+  get thumbnailSize (): number {
+    return this.$store.state.config.uiSettings.general.thumbnailSize
   }
 
-  mounted () {
-    this.textSearch = this.search
+  set thumbnailSize (value: number) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.thumbnailSize',
+      value,
+      server: true
+    })
   }
 
   handleUpload (files: FileList | File[], print: boolean) {

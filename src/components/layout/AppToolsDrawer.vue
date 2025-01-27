@@ -1,47 +1,46 @@
 <template>
   <v-navigation-drawer
-    :value="value"
+    v-model="open"
     app
     right
     clipped
     temporary
     width="300"
     dense
-    @input="emitChange"
   >
     <v-list
-      v-if="authenticated"
+      v-if="socketConnected && authenticated"
       dense
     >
       <v-subheader>{{ instanceName }}</v-subheader>
       <v-divider />
-      <system-commands @click="close" />
+      <system-commands @click="open = false" />
     </v-list>
 
-    <system-printers @click="close" />
+    <system-printers @click="open = false" />
 
     <system-layout
-      v-if="authenticated"
-      @click="close"
+      v-if="socketConnected && authenticated"
+      @click="open = false"
     />
   </v-navigation-drawer>
 </template>
 
 <script lang="ts">
-import { Component, Mixins, Prop } from 'vue-property-decorator'
+import { Component, Mixins, VModel } from 'vue-property-decorator'
 
 import StateMixin from '@/mixins/state'
 
 @Component({})
 export default class AppToolsDrawer extends Mixins(StateMixin) {
-  @Prop({ type: Boolean, default: false })
-  value!: boolean
+  @VModel({ type: Boolean })
+  open?: boolean
 
   get supportsHistory () {
     return this.$store.getters['server/componentSupport']('history')
   }
 
-  get instanceName () {
+  get instanceName (): string {
     return this.$store.state.config.uiSettings.general.instanceName
   }
 
@@ -49,16 +48,8 @@ export default class AppToolsDrawer extends Mixins(StateMixin) {
     return this.$store.getters['server/getInfo']
   }
 
-  get hasUpdates () {
+  get hasUpdates (): boolean {
     return this.$store.getters['version/hasUpdates']
-  }
-
-  close () {
-    this.$emit('input', false)
-  }
-
-  emitChange (e: boolean) {
-    this.$emit('input', e)
   }
 }
 </script>

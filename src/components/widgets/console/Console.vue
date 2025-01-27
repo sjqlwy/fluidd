@@ -1,10 +1,10 @@
 <template>
-  <div
-    class="console"
-  >
+  <div class="console">
     <console-command
       v-if="!readonly && flipLayout"
-      v-model="consoleCommand"
+      v-model="currentCommand"
+      :disabled="!klippyConnected"
+      :autofocus="fullscreen"
       @send="sendCommand"
     />
     <v-card
@@ -16,8 +16,11 @@
         ref="scroller"
         :items="flipLayout ? [...items].reverse() : items"
         :min-item-size="24"
-        :style="{ height: height + 'px' }"
-        :key-field="keyField"
+        class="console-scroller"
+        :class="{
+          'console-scroller-fullscreen': fullscreen
+        }"
+        key-field="id"
         :buffer="600"
         @resize="scrollToLatest()"
       >
@@ -31,7 +34,7 @@
             :data-index="index"
           >
             <console-item
-              :key="item[keyField]"
+              :key="item.id"
               :value="item"
               class="console-item"
               @click="handleEntryClick"
@@ -42,18 +45,23 @@
     </v-card>
     <console-command
       v-if="!readonly && !flipLayout"
-      v-model="consoleCommand"
+      v-model="currentCommand"
+      :disabled="!klippyConnected"
+      :autofocus="fullscreen"
       @send="sendCommand"
     />
   </div>
 </template>
 
 <script lang="ts">
-import { Component, Prop, Mixins, Watch, Ref } from 'vue-property-decorator'
+import { Component, Prop, Mixins, Watch, Ref, PropSync } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 import ConsoleCommand from './ConsoleCommand.vue'
 import ConsoleItem from './ConsoleItem.vue'
 import { SocketActions } from '@/api/socketActions'
+import type { DinamicScroller } from 'vue-virtual-scroller'
+import type { ConsoleEntry } from '@/store/console/types'
+import type { UpdateResponse } from '@/store/version/types'
 
 @Component({
   components: {
@@ -62,32 +70,28 @@ import { SocketActions } from '@/api/socketActions'
   }
 })
 export default class Console extends Mixins(StateMixin) {
-  @Prop({ type: Array, default: [] })
-  items!: []
+  @Prop({ type: [Array<ConsoleEntry>, Array<UpdateResponse>], default: () => [] })
+  readonly items!: ConsoleEntry[] | UpdateResponse[]
 
-  @Prop({ type: String, default: 'id' })
-  keyField!: string
+  @Prop({ type: Boolean })
+  readonly fullscreen?: boolean
 
-  @Prop({ type: Number, default: 250 })
-  height!: number
+  @Prop({ type: Boolean })
+  readonly readonly?: boolean
 
-  @Prop({ type: Boolean, default: false })
-  readonly!: boolean
+  @PropSync('scrollingPaused', { type: Boolean })
+  scrollingPausedModel?: boolean
 
   @Ref('scroller')
-  dynamicScroller!: any
+  readonly dynamicScroller!: DinamicScroller
 
   _pauseScroll = false
 
-  get availableCommands () {
-    return this.$store.getters['console/getAllGcodeCommands']
-  }
-
-  get consoleCommand () {
+  get currentCommand (): string {
     return this.$store.state.console.consoleCommand
   }
 
-  set consoleCommand (val: string) {
+  set currentCommand (val: string) {
     this.$store.commit('console/setConsoleCommand', val)
   }
 
@@ -108,7 +112,7 @@ export default class Console extends Mixins(StateMixin) {
   }
 
   @Watch('items', { immediate: true })
-  onItemsChange (_: any, oldItems: any[]) {
+  onItemsChange (_: unknown, oldItems: unknown[]) {
     if (this.dynamicScroller) {
       const el = this.dynamicScroller.$el
 
@@ -134,7 +138,7 @@ export default class Console extends Mixins(StateMixin) {
 
       if (this._pauseScroll !== pauseScroll) {
         this._pauseScroll = pauseScroll
-        this.$emit('update:scrollingPaused', pauseScroll)
+        this.scrollingPausedModel = pauseScroll
       }
     })
   }
@@ -159,23 +163,26 @@ export default class Console extends Mixins(StateMixin) {
         }
       }
 
-      this.updateScrollingPaused()
+      if (force) {
+        // The fixed/floating nature of the console may only change if the scroll is forced.
+        this.updateScrollingPaused()
+      }
     }
   }
 
   sendCommand (command?: string) {
     if (command && command.length) {
       // If clients detect M112 input from the console, we should invoke the emergency_stop endpoint
-      if (command && command.trim().toLowerCase() === 'm112') {
+      if (command.trim().toLowerCase() === 'm112') {
         SocketActions.printerEmergencyStop()
       }
       this.sendGcode(command)
-      this.consoleCommand = ''
+      this.currentCommand = ''
     }
   }
 
   handleEntryClick (command: string) {
-    this.consoleCommand = command
+    this.currentCommand = command
   }
 }
 </script>
@@ -186,6 +193,10 @@ export default class Console extends Mixins(StateMixin) {
     display: block;
   }
 
+  .console-item {
+    white-space: pre-wrap;
+  }
+
   .console-wrapper {
     font-family: monospace;
     font-size: 1rem; // 15 px
@@ -193,11 +204,19 @@ export default class Console extends Mixins(StateMixin) {
     padding-left: 4px;
   }
 
+  .console-scroller {
+    height: 300px;
+  }
+  .console-scroller-fullscreen {
+    height: calc(100vh - 240px);
+    height: calc(100svh - 240px);
+  }
+
   .v-input {
     flex: 0 0 auto;
   }
 
-  ::v-deep .vue-recycle-scroller__item-wrapper {
+  :deep(.vue-recycle-scroller__item-wrapper) {
     overflow: revert;
   }
 

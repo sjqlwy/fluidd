@@ -2,126 +2,151 @@
   <collapsable-card
     :title="$t('app.general.title.console')"
     icon="$console"
+    :help-tooltip="$t('app.console.tooltip.help')"
     card-classes="d-flex flex-column"
     content-classes="flex-grow-1 flow-shrink-0"
     menu-breakpoint="none"
     menu-icon="$cog"
-    :draggable="!fullScreen"
-    :collapsable="!fullScreen"
+    :draggable="!fullscreen"
+    :collapsable="!fullscreen"
     layout-path="dashboard.console-card"
     @collapsed="handleCollapseChange"
   >
-    <template #title>
-      <v-icon left>
-        $console
-      </v-icon>
-      <span class="font-weight-light">{{ $t('app.general.title.console') }}</span>
-      <app-inline-help
-        bottom
-        small
-        :tooltip="$t('app.console.placeholder.command')"
-      />
-    </template>
-
     <template #menu>
       <app-btn
         v-if="scrollingPaused"
-        color=""
-        fab
-        x-small
-        text
-        @click="console.scrollToLatest(true)"
+        icon
+        @click="consoleElement.scrollToLatest(true)"
       >
-        <v-icon>{{ flipLayout ? '$up' : '$down' }}</v-icon>
+        <v-icon dense>
+          {{ flipLayout ? '$up' : '$down' }}
+        </v-icon>
       </app-btn>
 
       <app-btn
-        v-if="!fullScreen"
-        color=""
-        fab
-        small
-        text
-        @click="$filters.routeTo($router, '/console')"
+        v-if="!fullscreen"
+        icon
+        @click="$filters.routeTo({ name: 'console' })"
       >
-        <v-icon>$fullScreen</v-icon>
+        <v-icon dense>
+          $fullScreen
+        </v-icon>
       </app-btn>
 
-      <app-btn-collapse-group
-        :collapsed="true"
-        menu-icon="$cog"
+      <app-btn
+        icon
+        @click="handleClear"
       >
-        <v-checkbox
-          v-model="hideTempWaits"
-          :label="$t('app.console.label.hide_temp_waits')"
-          color="primary"
-          hide-details
-          class="mx-2 mt-2"
-        />
-        <v-checkbox
-          v-model="autoScroll"
-          :label="$t('app.console.label.auto_scroll')"
-          color="primary"
-          hide-details
-          class="mx-2 mb-2"
-        />
-        <v-checkbox
-          v-model="flipLayout"
-          :label="$t('app.console.label.flip_layout')"
-          color="primary"
-          hide-details
-          class="mx-2 mb-2"
-        />
+        <v-icon dense>
+          $delete
+        </v-icon>
+      </app-btn>
 
-        <template v-for="(filter, index) in filters">
-          <v-divider
-            v-if="index === 0"
-            :key="index"
-          />
-          <v-checkbox
-            :key="filter.id"
-            v-model="filter.enabled"
-            :label="filter.name"
-            color="primary"
-            hide-details
-            class="mx-2 mt-2"
-          />
+      <v-menu
+        bottom
+        left
+        offset-y
+        transition="slide-y-transition"
+        :close-on-content-click="false"
+      >
+        <template #activator="{ on, attrs }">
+          <app-btn
+            icon
+            v-bind="attrs"
+            v-on="on"
+          >
+            <v-icon dense>
+              $cog
+            </v-icon>
+          </app-btn>
         </template>
-      </app-btn-collapse-group>
+
+        <v-list dense>
+          <v-list-item @click="hideTempWaits = !hideTempWaits">
+            <v-list-item-action class="my-0">
+              <v-checkbox :input-value="hideTempWaits" />
+            </v-list-item-action>
+            <v-list-item-content>
+              <v-list-item-title>
+                {{ $t('app.console.label.hide_temp_waits') }}
+              </v-list-item-title>
+            </v-list-item-content>
+          </v-list-item>
+
+          <v-list-item @click="autoScroll = !autoScroll">
+            <v-list-item-action class="my-0">
+              <v-checkbox :input-value="autoScroll" />
+            </v-list-item-action>
+            <v-list-item-content>
+              <v-list-item-title>
+                {{ $t('app.console.label.auto_scroll') }}
+              </v-list-item-title>
+            </v-list-item-content>
+          </v-list-item>
+
+          <v-list-item @click="flipLayout = !flipLayout">
+            <v-list-item-action class="my-0">
+              <v-checkbox :input-value="flipLayout" />
+            </v-list-item-action>
+            <v-list-item-content>
+              <v-list-item-title>
+                {{ $t('app.console.label.flip_layout') }}
+              </v-list-item-title>
+            </v-list-item-content>
+          </v-list-item>
+
+          <template v-if="filters && filters.length">
+            <v-divider />
+
+            <v-list-item
+              v-for="filter in filters"
+              :key="filter.id"
+              @click="handleToggleFilter(filter)"
+            >
+              <v-list-item-action class="my-0">
+                <v-checkbox :input-value="filter.enabled" />
+              </v-list-item-action>
+              <v-list-item-content>
+                <v-list-item-title>
+                  {{ filter.name }}
+                </v-list-item-title>
+              </v-list-item-content>
+            </v-list-item>
+          </template>
+        </v-list>
+      </v-menu>
     </template>
 
     <console
       ref="console"
       :scrolling-paused.sync="scrollingPaused"
       :items="items"
-      :height="fullScreen ? 816 : 300"
+      :fullscreen="fullscreen"
     />
   </collapsable-card>
 </template>
 
 <script lang="ts">
-import { Component, Mixins, Prop, Watch, Ref } from 'vue-property-decorator'
-import StateMixin from '@/mixins/state'
+import { Component, Vue, Prop, Watch, Ref } from 'vue-property-decorator'
 import Console from './Console.vue'
-import { ConsoleEntry } from '@/store/console/types'
+import type { ConsoleEntry, ConsoleFilter } from '@/store/console/types'
 
 @Component({
   components: {
     Console
   }
 })
-export default class ConsoleCard extends Mixins(StateMixin) {
-  @Prop({ type: Boolean, default: true })
-  enabled!: boolean
+export default class ConsoleCard extends Vue {
+  @Prop({ type: Boolean })
+  readonly fullscreen?: boolean
 
-  @Prop({ type: Boolean, default: false })
-  fullScreen!: boolean
-
-  @Ref('console') console!: Console
+  @Ref('console')
+  readonly consoleElement!: Console
 
   scrollingPaused = false
 
-  get filters () {
-    return this.$store.getters['console/getFilters']
+  get filters (): ConsoleFilter[] {
+    return this.$store.getters['console/getFilters'] as ConsoleFilter[]
   }
 
   get hideTempWaits (): boolean {
@@ -147,7 +172,7 @@ export default class ConsoleCard extends Mixins(StateMixin) {
       server: true
     })
 
-    this.console.flipLayout = value
+    this.consoleElement.flipLayout = value
   }
 
   get items (): ConsoleEntry[] {
@@ -158,28 +183,39 @@ export default class ConsoleCard extends Mixins(StateMixin) {
     return (this.$store.state.config.layoutMode)
   }
 
-  get autoScroll () {
+  get autoScroll (): boolean {
     return this.$store.state.console.autoScroll
   }
 
   set autoScroll (value: boolean) {
     this.$store.dispatch('console/onUpdateAutoScroll', value)
     if (value) {
-      this.console.scrollToLatest(true)
+      this.consoleElement.scrollToLatest(true)
     }
   }
 
   @Watch('inLayout')
   inLayoutChange (inLayout: boolean) {
     if (!inLayout) {
-      this.console.scrollToLatest()
+      this.consoleElement.scrollToLatest()
     }
   }
 
   handleCollapseChange (collapsed: boolean) {
     if (!collapsed) {
-      this.console.scrollToLatest()
+      this.consoleElement.scrollToLatest()
     }
+  }
+
+  handleClear () {
+    this.$store.dispatch('console/onClear')
+  }
+
+  handleToggleFilter (filter: ConsoleFilter) {
+    this.$store.dispatch('console/onSaveFilter', {
+      ...filter,
+      enabled: !filter.enabled
+    })
   }
 }
 </script>

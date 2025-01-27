@@ -4,33 +4,62 @@
     <v-progress-linear
       v-if="
         progressVisible &&
-          $vuetify.breakpoint.mdAndDown
+          $vuetify.breakpoint.smAndDown
       "
       :height="6"
       :value="estimates.progress"
       color="primary"
-    >
-      <!-- <small v-if="estimates.progress">{{ estimates.progress }}%</small> -->
-    </v-progress-linear>
+    />
 
     <v-card-text v-if="visible">
       <v-row>
-        <!-- Only show the circular progress for lgAndUp -->
-        <v-col
-          v-if="progressVisible && $vuetify.breakpoint.lgAndUp"
-          cols="auto"
-          align-self="center"
-        >
-          <v-progress-circular
-            :rotate="-90"
-            :size="90"
-            :width="7"
-            :value="estimates.progress"
-            color="primary"
+        <template v-if="progressVisible">
+          <v-col
+            v-if="printInProgressLayout === 'default' && $vuetify.breakpoint.lgAndUp"
+            cols="auto"
+            align-self="center"
           >
-            <span class="percentComplete focus--text">{{ estimates.progress }}%</span>
-          </v-progress-circular>
-        </v-col>
+            <v-progress-circular
+              :rotate="-90"
+              :size="90"
+              :width="7"
+              :value="estimates.progress"
+              color="primary"
+            >
+              <span class="percentComplete focus--text">{{ estimates.progress }}%</span>
+            </v-progress-circular>
+          </v-col>
+
+          <v-col
+            v-else-if="printInProgressLayout === 'compact' && $vuetify.breakpoint.mdAndUp"
+            cols="auto"
+            align-self="center"
+          >
+            <v-row>
+              <v-btn
+                text
+                class="progress-button mx-2"
+                @click="handleViewThumbnail"
+              >
+                <v-progress-circular
+                  :rotate="-90"
+                  :size="90"
+                  :width="7"
+                  :value="estimates.progress"
+                  color="primary"
+                >
+                  <img
+                    class="progress-button-image"
+                    :src="thumbnail"
+                  >
+                </v-progress-circular>
+              </v-btn>
+            </v-row>
+            <v-row justify="center">
+              <span class="primary--text">{{ estimates.progress }}%</span>
+            </v-row>
+          </v-col>
+        </template>
 
         <v-col align-self="center">
           <!-- Visible dependent on knowing the file, message or mdAndDown -->
@@ -76,19 +105,19 @@
               sm="6"
             >
               <status-label :label="$t('app.general.label.requested_speed')">
-                <span v-if="requestedSpeed > 0 && printerPrinting">{{ requestedSpeed }} mm/s</span>
+                <span v-if="liveVelocity > 0">{{ liveVelocity.toFixed(1) }} mm/s</span>
               </status-label>
 
               <status-label :label="$t('app.general.label.flow')">
-                <span v-if="flow.value > 0 && printerPrinting">{{ flow.value.toFixed(1) }} mm&sup3;/s</span>
+                <span v-if="liveFlow > 0">{{ liveFlow.toFixed(1) }} mm&sup3;/s</span>
               </status-label>
 
               <status-label :label="$t('app.general.label.filament')">
-                <span v-if="filament_used > 0 && printerPrinting">{{ $filters.getReadableLengthString(filament_used) }}</span>
+                <span v-if="filamentUsed > 0">{{ $filters.getReadableLengthString(filamentUsed) }}</span>
               </status-label>
 
               <status-label :label="$t('app.general.label.layer')">
-                <span v-if="layers && printerPrinting">{{ layer }} / {{ layers }}</span>
+                <span v-if="layers > 0">{{ layer }} / {{ layers }}</span>
               </status-label>
             </v-col>
 
@@ -97,29 +126,29 @@
               sm="6"
             >
               <status-label
-                v-if="estimates.actual > 0"
+                v-if="estimates.actualLeft > 0"
                 :label="$t('app.general.label.actual_time')"
               >
-                <span v-if="estimates.actual > 0">{{ $filters.formatCounterTime(estimates.actual) }}</span>
+                <span>{{ $filters.formatCounterSeconds(estimates.actualLeft) }}</span>
               </status-label>
 
               <status-label
                 v-else
                 :label="$t('app.general.label.file_time')"
               >
-                <span v-if="estimates.file > 0">{{ $filters.formatCounterTime(estimates.file) }}</span>
+                <span v-if="estimates.fileLeft > 0">{{ $filters.formatCounterSeconds(estimates.fileLeft) }}</span>
               </status-label>
 
               <status-label :label="$t('app.general.label.slicer')">
-                <span v-if="estimates.slicer > 0 && printerPrinting">{{ $filters.formatCounterTime(estimates.slicer) }}</span>
+                <span v-if="estimates.slicerLeft > 0">{{ $filters.formatCounterSeconds(estimates.slicerLeft) }}</span>
               </status-label>
 
               <status-label :label="$t('app.general.label.total')">
-                <span v-if="estimates.duration > 0 && printerPrinting">{{ $filters.formatCounterTime(estimates.duration) }}</span>
+                <span v-if="estimates.printDuration > 0">{{ $filters.formatCounterSeconds(estimates.printDuration) }}</span>
               </status-label>
 
               <status-label :label="$t('app.general.label.finish_time')">
-                <span v-if="estimates.eta > 0 && printerPrinting">{{ $filters.formatAbsoluteDateTime(estimates.eta, $store.state.config.uiSettings.general.timeformat, $store.state.config.uiSettings.general.dateformat + ' - ' + $store.state.config.uiSettings.general.timeformat) }}</span>
+                <span v-if="estimates.eta > 0">{{ $filters.formatAbsoluteDateTime(estimates.eta) }}</span>
               </status-label>
             </v-col>
           </v-row>
@@ -134,75 +163,92 @@
                 v-if="current_file.history && current_file.history.filament_used"
                 :label="$t('app.general.label.filament')"
               >
-                <span v-if="current_file.history.filament_used">{{ $filters.getReadableLengthString(current_file.history.filament_used) }}</span>
+                <span>{{ $filters.getReadableLengthString(current_file.history.filament_used) }}</span>
               </status-label>
 
               <status-label
-                v-if="current_file.filament_total && !current_file.history && !current_file.history.filament_used"
+                v-else-if="current_file.filament_total"
                 :label="$t('app.general.label.filament')"
               >
-                <span v-if="current_file.filament_total">{{ $filters.getReadableLengthString(current_file.filament_total) }}</span>
+                <span>{{ $filters.getReadableLengthString(current_file.filament_total) }}</span>
               </status-label>
 
               <status-label
                 v-if="current_file.estimated_time"
                 :label="$t('app.general.label.slicer')"
               >
-                <span v-if="current_file.estimated_time > 0">{{ $filters.formatCounterTime(current_file.estimated_time) }}</span>
+                <span>{{ $filters.formatCounterSeconds(current_file.estimated_time) }}</span>
               </status-label>
 
               <status-label
-                v-if="current_file.history && current_file.history.print_duration"
+                v-if="current_file.history && current_file.history.print_duration > 0"
                 :label="$t('app.general.label.actual_time')"
               >
-                <span v-if="current_file.history.print_duration > 0">{{ $filters.formatCounterTime(current_file.history.print_duration) }}</span>
+                <span>{{ $filters.formatCounterSeconds(current_file.history.print_duration) }}</span>
               </status-label>
 
               <status-label
-                v-if="current_file.history && current_file.history.total_duration"
+                v-if="current_file.history && current_file.history.total_duration > 0"
                 :label="$t('app.general.label.total')"
               >
-                <span v-if="current_file.history.total_duration > 0">{{ $filters.formatCounterTime(current_file.history.total_duration) }}</span>
+                <span>{{ $filters.formatCounterSeconds(current_file.history.total_duration) }}</span>
               </status-label>
             </v-col>
           </v-row>
         </v-col>
 
-        <!-- Only show the thumb if we're lgAndUp and have a thumb to show -->
         <v-col
-          v-if="thumbVisible"
+          v-if="thumbVisible && printInProgressLayout === 'default'"
           cols="auto"
           align-self="center"
           class="pa-0"
         >
-          <img
-            class="print-thumb"
-            :src="thumbnail"
+          <v-btn
+            text
+            height="100%"
+            @click="handleViewThumbnail"
           >
+            <img
+              class="print-thumb"
+              :src="thumbnail"
+            >
+          </v-btn>
         </v-col>
       </v-row>
     </v-card-text>
+
+    <file-preview-dialog
+      v-if="filePreviewState.open"
+      v-model="filePreviewState.open"
+      :filename="filePreviewState.filename"
+      :src="filePreviewState.src"
+      type="image/any"
+      :width="filePreviewState.width"
+    />
   </div>
 </template>
 
 <script lang="ts">
-import { Component, Mixins, Watch } from 'vue-property-decorator'
+import { Component, Mixins } from 'vue-property-decorator'
 import StatusLabel from './StatusLabel.vue'
 import StateMixin from '@/mixins/state'
 import FilesMixin from '@/mixins/files'
+import ToolheadMixin from '@/mixins/toolhead'
+import FilePreviewDialog from '../filesystem/FilePreviewDialog.vue'
+import type { TimeEstimates } from '@/store/printer/types'
+import type { PrintInProgressLayout } from '@/store/config/types'
 
 @Component({
   components: {
-    StatusLabel
+    StatusLabel,
+    FilePreviewDialog
   }
 })
-export default class StatusTab extends Mixins(StateMixin, FilesMixin) {
-  // Maintains the state of flow
-  flow = {
-    timestamp: new Date().getTime(),
-    lastExtruderPosition: 0,
-    value: 0,
-    max: 0
+export default class StatusTab extends Mixins(StateMixin, FilesMixin, ToolheadMixin) {
+  filePreviewState: any = {
+    open: false,
+    filename: '',
+    src: ''
   }
 
   get visible () {
@@ -251,6 +297,10 @@ export default class StatusTab extends Mixins(StateMixin, FilesMixin) {
     )
   }
 
+  get printInProgressLayout (): PrintInProgressLayout {
+    return this.$store.state.config.uiSettings.general.printInProgressLayout
+  }
+
   /**
    * Current file with appended history data if it exists.
    */
@@ -290,34 +340,35 @@ export default class StatusTab extends Mixins(StateMixin, FilesMixin) {
       this.current_file &&
       this.current_file.thumbnails
     ) {
-      const url = this.getThumbUrl(this.current_file.thumbnails, this.current_file.path, true, this.current_file.modified)
+      const url = this.getThumbUrl(this.current_file, 'gcodes', this.current_file.path, true, this.current_file.modified)
       return url
     }
   }
 
-  /**
-   * The known requested speed.
-   */
-  get requestedSpeed () {
-    // Take into account the speed multiplier.
-    const multiplier = this.$store.state.printer.printer.gcode_move.speed_factor || 1
-    let speed = this.$store.state.printer.printer.gcode_move.speed || 0
-    speed = (speed * multiplier) / 60
-    return speed.toFixed()
+  get liveVelocity (): number {
+    return this.$store.state.printer.printer.motion_report.live_velocity
+  }
+
+  get liveExtruderVelocity (): number {
+    return this.$store.state.printer.printer.motion_report.live_extruder_velocity
+  }
+
+  get liveFlow (): number {
+    return Math.PI / 4 * this.filamentDiameter ** 2 * this.liveExtruderVelocity
   }
 
   /**
    * Actual estimates for during a print.
    */
-  get estimates () {
-    return this.$store.getters['printer/getTimeEstimates']
+  get estimates (): TimeEstimates {
+    return this.$store.getters['printer/getTimeEstimates'] as TimeEstimates
   }
 
   /**
    * If the user has enabled the history component.
    */
-  get supportsHistoryComponent () {
-    return this.$store.getters['server/componentSupport']('history')
+  get supportsHistoryComponent (): boolean {
+    return this.$store.getters['server/componentSupport']('history') as boolean
   }
 
   /**
@@ -330,83 +381,46 @@ export default class StatusTab extends Mixins(StateMixin, FilesMixin) {
   /**
    * The total estimated layer count.
    */
-  get layers () {
-    const current_file = this.$store.state.printer.printer.current_file
-    if ('layer_count' in current_file) {
-      return current_file.layer_count
-    } else if (
-      'first_layer_height' in current_file &&
-      'layer_height' in current_file &&
-      'object_height' in current_file
-    ) {
-      const lc = Math.ceil((current_file.object_height - current_file.first_layer_height) / current_file.layer_height + 1)
-      if (lc > 0) return lc
-    }
-    return 0
+  get layers (): number {
+    return this.$store.getters['printer/getPrintLayers'] as number
   }
 
   /**
    * Current estimated layer based on current z pos.
    */
-  get layer () {
-    const current_file = this.$store.state.printer.printer.current_file
-    const duration = this.$store.state.printer.printer.print_stats.print_duration || 0
-    const pos = this.$store.state.printer.printer.gcode_move.gcode_position
-    if (
-      current_file &&
-      duration > 0 &&
-      'first_layer_height' in current_file &&
-      'layer_height' in current_file &&
-      pos &&
-      pos.length >= 3
-    ) {
-      const z = this.$store.state.printer.printer.gcode_move.gcode_position[2]
-      const l = Math.ceil((z - current_file.first_layer_height) / current_file.layer_height + 1)
-      if (l > 0) return l
-    }
-    return 0
+  get layer (): number {
+    return this.$store.getters['printer/getPrintLayer'] as number
   }
 
   /**
    * Filament used according to print stats.
    */
-  get filament_used () {
-    return this.$store.state.printer.printer.print_stats.filament_used || 0
+  get filamentUsed (): number {
+    const filamentUsed: number | undefined = this.$store.state.printer.printer.print_stats.filament_used
+
+    return filamentUsed ?? 0
   }
 
   /**
    * Total filament according to the current file / slicer.
    */
-  get filament_total () {
-    return this.$store.state.printer.printer.current_file.filament_total || 0
+  get filamentTotal (): number {
+    const filamentTotal: number | undefined = this.$store.state.printer.printer.current_file.filament_total
+
+    return filamentTotal || 0
   }
 
-  /**
-   * Work out flow provided our used filament changed, and we've not calculated
-   * within a given delta (2sec).
-   */
-  @Watch('filament_used')
-  onFilamentUsed (filament_used: string) {
-    const extruderPosition = parseFloat(filament_used)
-    const filament_diameter = this.$store.getters['printer/getPrinterSettings']('extruder.filament_diameter') || 1.75
-    const timeDelta = (new Date().getTime() - this.flow.timestamp) / 1000
-    if (timeDelta >= 2) {
-      if (
-        this.flow.lastExtruderPosition &&
-        this.flow.lastExtruderPosition < extruderPosition &&
-        this.flow.timestamp
-      ) {
-        // console.log('getting flow', filament_diameter, timeDelta)
-        const filamentDiff = extruderPosition - this.flow.lastExtruderPosition
-        const filamentCrossSection = Math.pow(filament_diameter / 2, 2) * Math.PI
+  async handleViewThumbnail () {
+    const file = this.current_file
+    const thumb = this.getThumb(file, 'gcodes', file.path, true, file.modified)
 
-        this.flow.value = filamentCrossSection * filamentDiff / timeDelta
-
-        if (this.flow.max < this.flow.value) this.flow.max = this.flow.value
+    if (thumb) {
+      this.filePreviewState = {
+        open: true,
+        filename: file.filename,
+        src: thumb.url,
+        width: thumb.width
       }
-
-      this.flow.lastExtruderPosition = extruderPosition
-      this.flow.timestamp = new Date().getTime()
     }
   }
 }
@@ -416,6 +430,7 @@ export default class StatusTab extends Mixins(StateMixin, FilesMixin) {
   .print-thumb {
     display: block;
     max-height: 110px;
+    pointer-events: none;
   }
 
   .filename {
@@ -425,5 +440,20 @@ export default class StatusTab extends Mixins(StateMixin, FilesMixin) {
     // width: 200px;
     direction: rtl;
     text-align: left;
+  }
+
+  .progress-button {
+    width: 90px !important;
+    height: 90px !important;
+    border-radius: 50%;
+    overflow: hidden;
+  }
+
+  .progress-button-image {
+    max-width: 70px;
+    max-height: 70px;
+    border-radius: 50%;
+    overflow: hidden;
+    pointer-events: none;
   }
 </style>

@@ -1,43 +1,95 @@
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
+
 import { loadWASM } from 'onigasm'
-import { IGrammarDefinition, Registry } from 'monaco-textmate'
+import onigasmWasm from 'onigasm/lib/onigasm.wasm?url'
+
+import { Registry, type IGrammarDefinition } from 'monaco-textmate'
 import { wireTmGrammars } from 'monaco-editor-textmate'
 import getVueApp from '@/util/get-vue-app'
 import themeDark from '@/monaco/theme/editor.dark.theme.json'
 import themeLight from '@/monaco/theme/editor.light.theme.json'
 
-const extruderRegExp = /^extruder[0-9]+$/
+import { MonacoLanguageImports } from '@/dynamicImports'
+import type { KlippyApp, SupportedKlipperServices } from '@/store/printer/types'
 
-const getDocsSection = (sectionName: string) => {
-  if (sectionName.startsWith('stepper_')) {
-    return 'stepper'
-  }
+type ReduceState<T> = {
+  current?: T,
+  result: T[]
+}
 
-  if (extruderRegExp.test(sectionName)) {
-    return 'extruder'
+type StackReduceState<U, T> = {
+  stack: U[],
+  result: T[]
+}
+
+type CodeLensSupportedService = 'klipper' | 'moonraker' | 'moonraker-telegram-bot' | 'crowsnest'
+
+const isCodeLensSupportedService = (service: string): service is CodeLensSupportedService => [
+  'klipper',
+  'moonraker',
+  'moonraker-telegram-bot',
+  'crowsnest'
+].includes(service)
+
+type DocsSectionService = CodeLensSupportedService | SupportedKlipperServices
+
+const getDocsSectionHash = (service: DocsSectionService, sectionName: string) => {
+  switch (service) {
+    case 'klipper':
+      if (sectionName.startsWith('stepper_')) {
+        return 'stepper'
+      }
+
+      if (/^extruder\d{0,2}$/.test(sectionName)) {
+        return 'extruder'
+      }
+
+      break
+
+    case 'danger-klipper':
+      if (sectionName === 'danger_options') {
+        return 'danger-options'
+      }
+
+      return getDocsSectionHash('klipper', sectionName)
+
+    case 'kalico':
+      if (sectionName === 'danger_options') {
+        return 'danger-options'
+      }
+
+      if (sectionName === 'constants') {
+        return 'configuration-references'
+      }
+
+      return getDocsSectionHash('klipper', sectionName)
+
+    case 'moonraker':
+      if (sectionName.startsWith('include')) {
+        return 'include-directives'
+      }
+
+      break
   }
 
   return sectionName
 }
 
 async function setupMonaco () {
-  const wasm = await require('onigasm/lib/onigasm.wasm')
-  await loadWASM(wasm.default)
+  await Promise.all([
+    loadWASM(onigasmWasm),
+    import('./setupMonaco.features')
+  ])
 
   // Register our custom TextMate languages.
   const registry = new Registry({
     getGrammarDefinition: async (scopeName): Promise<IGrammarDefinition> => {
-      const fileName = scopeName.split('.').pop()
-      return import(
-                /* webpackChunkName: "grammar-[request]" */
-                `@/monaco/language/${fileName}.tmLanguage.json`
-      )
-        .then(language => {
-          return Promise.resolve({
-            format: 'json',
-            content: language.default
-          })
-        })
+      const languageName = scopeName.split('.').pop() ?? ''
+      const language = await MonacoLanguageImports[languageName]()
+      return {
+        format: 'json',
+        content: language
+      }
     }
   })
 
@@ -65,55 +117,79 @@ async function setupMonaco () {
   })
 
   const app = getVueApp()
+  const klippyApp = app.$store.getters['printer/getKlippyApp'] as KlippyApp
 
-  monaco.editor.registerCommand('fluidd_open_docs', (_, isMoonrakerConfig, hash) => {
-    if (isMoonrakerConfig) {
-      const url = app.$t('app.file_system.url.moonraker_config', { hash }).toString()
-      window.open(url)
-    } else {
-      const url = app.$t('app.file_system.url.klipper_config', { hash }).toString()
-      window.open(url)
-    }
+  monaco.editor.registerCommand('fluidd_open_docs', (_, service: CodeLensSupportedService, hash: string) => {
+    const serviceKey = service.replace(/-/g, '_')
+
+    const url = app.$t(`app.file_system.url.${serviceKey}_config`, {
+      hash,
+      klipperDomain: klippyApp.domain
+    }).toString()
+
+    window.open(url)
   })
 
   monaco.languages.registerCodeLensProvider('klipper-config', {
     provideCodeLenses: (model) => {
-      const isMoonrakerConfig = model.uri.path.toLowerCase().endsWith('/moonraker.conf')
+      const { service } = app.$store.getters['server/getConfigMapByFilename'](model.uri.path.split('/').pop())
+
+      if (!isCodeLensSupportedService(service)) {
+        return null
+      }
+
+      const docsSectionService: DocsSectionService = service === 'klipper'
+        ? klippyApp.name
+        : service
 
       const linesContent = model.getLinesContent()
 
-      const sections = linesContent.reduce((ranges, lineContent, index) => {
-        const section = /^\[([^\]]+)\]/.exec(lineContent)
-        if (section) {
-          const [sectionName] = section[1].split(' ')
+      const sectionBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          const section = /^\[([^\]]+)\]/.exec(lineContent)
 
-          const referenceSection = getDocsSection(sectionName)
+          if (section) {
+            const [sectionName] = section[1].split(' ', 1)
 
-          return ranges.concat({
-            referenceSection,
-            range: {
-              startLineNumber: index + 1,
-              startColumn: model.getLineFirstNonWhitespaceColumn(index + 1),
-              endLineNumber: index + 1,
-              endColumn: model.getLineLastNonWhitespaceColumn(index + 1)
+            const hash = getDocsSectionHash(docsSectionService, sectionName)
+
+            state.result.push(state.current = {
+              sectionName,
+              hash,
+              range: {
+                startLineNumber: index + 1,
+                startColumn: model.getLineFirstNonWhitespaceColumn(index + 1),
+                endLineNumber: index + 1,
+                endColumn: model.getLineLastNonWhitespaceColumn(index + 1)
+              }
+            })
+          } else {
+            const isNotComment = /^\s*[^#;]/.test(lineContent)
+
+            if (isNotComment && state.current) {
+              state.current.range = {
+                ...state.current.range,
+                endLineNumber: index + 1,
+                endColumn: model.getLineLastNonWhitespaceColumn(index + 1)
+              }
             }
-          })
-        }
-        return ranges
-      }, [] as { referenceSection: string, range: monaco.IRange }[])
+          }
+
+          return state
+        }, { result: [] } as ReduceState<{ sectionName: string, hash: string, range: monaco.IRange }>)
+        .result
 
       return {
-        lenses: sections.map((section, index) =>
-          ({
+        lenses: sectionBlocks
+          .map((section, index) => ({
             range: section.range,
             id: `docs${index}`,
             command: {
               id: 'fluidd_open_docs',
-              title: app.$t('app.file_system.label.view_section_documentation', { section: section.referenceSection }).toString(),
-              arguments: [isMoonrakerConfig, section.referenceSection]
+              title: app.$t('app.file_system.label.view_section_documentation', { section: section.sectionName }).toString(),
+              arguments: [service, section.hash]
             }
-          })
-        ),
+          })),
         dispose: () => undefined
       }
     },
@@ -124,42 +200,210 @@ async function setupMonaco () {
     provideFoldingRanges: (model) => {
       const linesContent = model.getLinesContent()
 
-      return linesContent.reduce((sections, lineContent, index) => {
-        const isSection = /^\[([^\]]+)\]/.test(lineContent)
+      const sectionBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          const isSection = /^\[[^\]]+\]/.test(lineContent)
 
-        if (isSection) {
-          return sections.concat({
-            start: index + 1,
-            end: index + 1,
-            kind: monaco.languages.FoldingRangeKind.Region
-          })
-        }
+          if (isSection) {
+            state.result.push(state.current = {
+              kind: monaco.languages.FoldingRangeKind.Region,
+              start: index + 1,
+              end: index + 1
+            })
+          } else {
+            const isNotComment = /^\s*[^#;]/.test(lineContent)
 
-        const lastSection = sections.length > 0 ? sections[sections.length - 1] : undefined
-        const isLastSectionComment = lastSection?.kind === monaco.languages.FoldingRangeKind.Comment
+            if (isNotComment && state.current) {
+              state.current.end = index + 1
+            }
+          }
 
-        const isComment = lineContent.startsWith('#')
+          return state
+        }, { result: [] } as ReduceState<monaco.languages.FoldingRange>)
+        .result
 
-        if (isComment && !isLastSectionComment) {
-          return sections.concat({
-            start: index + 1,
-            end: index + 1,
-            kind: monaco.languages.FoldingRangeKind.Comment
-          })
-        }
+      const regionBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          lineContent = lineContent.trim()
 
-        if (lineContent.trim().length > 0 && isComment === isLastSectionComment) {
-          sections[sections.length - 1].end = index + 1
-        }
+          if (lineContent.length > 0) {
+            const isRegion = /^#region\b/.test(lineContent)
 
-        return sections
-      }, [] as monaco.languages.FoldingRange[])
+            if (isRegion) {
+              state.stack.push(index + 1)
+            } else {
+              const isEndRegion = /^#endregion\b/.test(lineContent)
+
+              if (isEndRegion && state.stack.length > 0) {
+                state.result.push({
+                  kind: monaco.languages.FoldingRangeKind.Region,
+                  start: state.stack.pop() ?? 0,
+                  end: index + 1
+                })
+              }
+            }
+          }
+
+          return state
+        }, { stack: [], result: [] } as StackReduceState<number, monaco.languages.FoldingRange>)
+        .result
+
+      const commentBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          lineContent = lineContent.trim()
+
+          if (lineContent.length > 0) {
+            const isComment = /^;|#(?!(?:region|endregion)\b)/.test(lineContent)
+
+            if (isComment) {
+              if (state.current) {
+                state.current.end = index + 1
+              } else {
+                state.result.push(state.current = {
+                  kind: monaco.languages.FoldingRangeKind.Comment,
+                  start: index + 1,
+                  end: index + 1
+                })
+              }
+            } else {
+              state.current = undefined
+            }
+          }
+
+          return state
+        }, { result: [] } as ReduceState<monaco.languages.FoldingRange>)
+        .result
+
+      return [
+        ...sectionBlocks,
+        ...regionBlocks,
+        ...commentBlocks
+      ]
+    }
+  })
+
+  monaco.languages.registerFoldingRangeProvider('gcode', {
+    provideFoldingRanges: (model) => {
+      const linesContent = model.getLinesContent()
+
+      const layerBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          const isLayer = /^\s*SET_PRINT_STATS_INFO .*CURRENT_LAYER=/i.test(lineContent)
+
+          if (isLayer) {
+            state.result.push(state.current = {
+              kind: monaco.languages.FoldingRangeKind.Region,
+              start: index + 1,
+              end: index + 1
+            })
+          } else {
+            const isNotComment = /^\s*[^;]/.test(lineContent)
+
+            if (isNotComment && state.current) {
+              state.current.end = index + 1
+            }
+          }
+
+          return state
+        }, { result: [] } as ReduceState<monaco.languages.FoldingRange>)
+        .result
+
+      const objectBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          lineContent = lineContent.trim()
+
+          if (lineContent.length > 0) {
+            const isObject = /^\s*EXCLUDE_OBJECT_(START|END) /i.exec(lineContent)
+
+            if (isObject) {
+              switch (isObject[1].toUpperCase()) {
+                case 'START':
+                  state.result.push(state.current = {
+                    kind: monaco.languages.FoldingRangeKind.Region,
+                    start: index + 1,
+                    end: index + 1
+                  })
+                  break
+
+                case 'END':
+                  state.current = undefined
+                  break
+              }
+            } else {
+              if (state.current) {
+                state.current.end = index + 1
+              }
+            }
+          }
+
+          return state
+        }, { result: [] } as ReduceState<monaco.languages.FoldingRange>)
+        .result
+
+      const thumbnailBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          if (lineContent.startsWith('; thumbnail')) {
+            const type = lineContent.substring(11).split(' ')[1]
+
+            switch (type) {
+              case 'begin':
+                state.result.push(state.current = {
+                  kind: monaco.languages.FoldingRangeKind.Comment,
+                  start: index + 1,
+                  end: index + 1
+                })
+                break
+
+              case 'end':
+                if (state.current && state.current.start === state.current.end) {
+                  state.current.end = index
+                }
+                break
+            }
+          }
+
+          return state
+        }, { result: [] } as ReduceState<monaco.languages.FoldingRange>)
+        .result
+
+      const commentBlocks = linesContent
+        .reduce((state, lineContent, index) => {
+          lineContent = lineContent.trim()
+
+          if (lineContent.length > 0) {
+            const isComment = lineContent.startsWith(';')
+
+            if (isComment) {
+              if (state.current) {
+                state.current.end = index + 1
+              } else {
+                state.result.push(state.current = {
+                  kind: monaco.languages.FoldingRangeKind.Comment,
+                  start: index + 1,
+                  end: index + 1
+                })
+              }
+            } else {
+              state.current = undefined
+            }
+          }
+
+          return state
+        }, { result: [] } as ReduceState<monaco.languages.FoldingRange>)
+        .result
+
+      return [
+        ...layerBlocks,
+        ...objectBlocks,
+        ...commentBlocks,
+        ...thumbnailBlocks
+      ]
     }
   })
 
   // Defined the themes.
-  monaco.editor.defineTheme('dark-converted', themeDark as any)
-  monaco.editor.defineTheme('light-converted', themeLight as any)
+  monaco.editor.defineTheme('dark-converted', themeDark as monaco.editor.IStandaloneThemeData)
+  monaco.editor.defineTheme('light-converted', themeLight as monaco.editor.IStandaloneThemeData)
 
   // Wire it up.
   await wireTmGrammars(monaco, registry, grammars)

@@ -6,10 +6,10 @@
     <job-history />
 
     <template #menu>
-      <app-btn-collapse-group>
+      <app-btn-collapse-group :collapsed="menuCollapsed">
         <app-btn
           small
-          class="ma-1"
+          class="ms-1 my-1"
           @click="handleLoadAll"
         >
           <v-icon
@@ -22,7 +22,7 @@
         </app-btn>
         <app-btn
           small
-          class="ma-1"
+          class="ms-1 my-1"
           @click="handleRemoveAll"
         >
           <v-icon
@@ -39,7 +39,7 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue } from 'vue-property-decorator'
+import { Component, Prop, Vue } from 'vue-property-decorator'
 import JobHistory from '@/components/widgets/history/JobHistory.vue'
 import { SocketActions } from '@/api/socketActions'
 
@@ -49,16 +49,18 @@ import { SocketActions } from '@/api/socketActions'
   }
 })
 export default class PrinterHistoryCard extends Vue {
-  handleRemoveAll () {
-    this.$confirm(
+  @Prop({ type: Boolean })
+  readonly menuCollapsed?: boolean
+
+  async handleRemoveAll () {
+    const result = await this.$confirm(
       this.$tc('app.history.msg.confirm_jobs'),
       { title: this.$tc('app.general.label.confirm'), color: 'card-heading', icon: '$error' }
     )
-      .then(res => {
-        if (res) {
-          SocketActions.serverHistoryDeleteJob('all')
-        }
-      })
+
+    if (result) {
+      SocketActions.serverHistoryDeleteJob('all')
+    }
   }
 
   handleLoadAll () {

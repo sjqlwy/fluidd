@@ -1,9 +1,8 @@
-import { MutationTree } from 'vuex'
-import { defaultState } from './'
-import { GcodePreviewState } from './types'
+import type { MutationTree } from 'vuex'
+import { defaultState } from './state'
+import type { GcodePreviewState } from './types'
 import Vue from 'vue'
-import { AppFile } from '@/store/files/types'
-import { Thread } from 'threads'
+import type { AppFile } from '@/store/files/types'
 
 export const mutations: MutationTree<GcodePreviewState> = {
   /**
@@ -17,6 +16,14 @@ export const mutations: MutationTree<GcodePreviewState> = {
     Vue.set(state, 'moves', Object.freeze(payload.map(Object.freeze)))
   },
 
+  setLayers (state, payload) {
+    Vue.set(state, 'layers', Object.freeze(payload.map(Object.freeze)))
+  },
+
+  setParts (state, payload) {
+    Vue.set(state, 'parts', Object.freeze(payload.map(Object.freeze)))
+  },
+
   setFile (state, file: AppFile) {
     state.file = file
   },
@@ -25,19 +32,11 @@ export const mutations: MutationTree<GcodePreviewState> = {
     state.file = undefined
   },
 
-  setViewerState (state, payload: any) {
-    for (const key of Object.keys(state.viewer)) {
-      if (payload[key] !== undefined) {
-        Vue.set(state.viewer, key, payload[key])
-      }
-    }
-  },
-
   setParserProgress (state, payload: number) {
     state.parserProgress = payload
   },
 
-  setParserWorker (state, payload: Thread) {
+  setParserWorker (state, payload: Worker) {
     state.parserWorker = payload
   }
 }

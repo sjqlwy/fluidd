@@ -1,78 +1,51 @@
 <template>
-  <v-dialog
-    :value="value"
-    :max-width="350"
-    @input="$emit('input', $event)"
+  <app-dialog
+    v-model="open"
+    :title="title"
+    max-width="350"
+    @save="handleSave"
   >
-    <v-form
-      ref="addInstanceForm"
-      v-model="valid"
-      class="mt-3"
-      @submit.prevent="handleSave"
-    >
-      <v-card>
-        <v-card-title class="card-heading py-2">
-          <span class="focus--text">{{ title }}</span>
-        </v-card-title>
-
-        <v-divider />
-
-        <v-card-text>
-          <v-text-field
-            v-model="newName"
-            autofocus
-            outlined
-            :label="label"
-            :rules="rules"
-            hide-details="auto"
-            required
-          />
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer />
-          <app-btn
-            color="warning"
-            text
-            type="button"
-            @click="$emit('input', false)"
-          >
-            {{ $t('app.general.btn.cancel') }}
-          </app-btn>
-          <app-btn
-            color="primary"
-            type="submit"
-          >
-            {{ $t('app.general.btn.save') }}
-          </app-btn>
-        </v-card-actions>
-      </v-card>
-    </v-form>
-  </v-dialog>
+    <v-card-text>
+      <v-text-field
+        v-model="newName"
+        autofocus
+        outlined
+        :label="label"
+        :rules="[
+          $rules.required,
+          customRules.uniqueName
+        ]"
+        required
+      />
+    </v-card-text>
+  </app-dialog>
 </template>
 
 <script lang="ts">
-import { Component, Vue, Prop } from 'vue-property-decorator'
+import type { MacroCategory } from '@/store/macros/types'
+import { Component, Vue, Prop, VModel } from 'vue-property-decorator'
 
 @Component({})
 export default class MacroCategoryDialog extends Vue {
-  @Prop({ type: Boolean, required: true })
-  value!: boolean
+  @VModel({ type: Boolean })
+  open?: boolean
 
   @Prop({ type: String, required: true })
-  title!: string
+  readonly title!: string
 
   @Prop({ type: String, required: true })
-  label!: string
-
-  @Prop({ type: Array, required: false })
-  rules!: []
+  readonly label!: string
 
   @Prop({ type: String, required: true })
-  name!: string
+  readonly name!: string
 
   newName = ''
-  valid = true
+
+  get customRules () {
+    return {
+      uniqueName: (v: string) => this.categories.findIndex((c: MacroCategory) => c.name.toLowerCase() === v.toLowerCase()) < 0 || this.$t('app.general.simple_form.error.exists')
+    }
+  }
 
   mounted () {
     this.newName = this.name
@@ -83,10 +56,8 @@ export default class MacroCategoryDialog extends Vue {
   }
 
   handleSave () {
-    if (this.valid) {
-      this.$emit('save', this.newName)
-      this.$emit('input', false)
-    }
+    this.$emit('save', this.newName)
+    this.open = false
   }
 }
 </script>

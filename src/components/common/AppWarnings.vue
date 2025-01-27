@@ -4,8 +4,9 @@
     dense
     icon="$warning"
     type="warning"
+    class="ma-0"
   >
-    <div v-if="printerWarnings.length > 0">
+    <template v-if="printerWarnings.length > 0">
       <div class="mb-2">
         {{ $t('app.general.error.app_warnings_found', { appName }) }}
       </div>
@@ -13,12 +14,12 @@
         <li
           v-for="(warning, index) in printerWarnings"
           :key="index"
-          v-html="warning.message"
+          v-html="linkExternalUrls(warning.message)"
         />
       </ul>
-    </div>
+    </template>
 
-    <div v-if="klipperWarnings.length > 0">
+    <template v-if="klipperWarnings.length > 0">
       <div class="mb-2">
         {{ $t('app.general.error.app_warnings_found', { appName: 'Klipper' }) }}
       </div>
@@ -26,12 +27,12 @@
         <li
           v-for="(warning, index) in klipperWarnings"
           :key="index"
-          v-html="warning.message"
+          v-html="linkExternalUrls(warning.message)"
         />
       </ul>
-    </div>
+    </template>
 
-    <div v-if="moonrakerFailedComponents.length > 0">
+    <template v-if="moonrakerFailedComponents.length > 0">
       <div class="mb-2">
         {{ $t('app.general.error.failed_components') }}
       </div>
@@ -39,12 +40,12 @@
         <li
           v-for="(failedComponent, index) in moonrakerFailedComponents"
           :key="index"
-          v-html="failedComponent"
+          v-html="linkExternalUrls(failedComponent)"
         />
       </ul>
-    </div>
+    </template>
 
-    <div v-if="moonrakerWarnings.length > 0">
+    <template v-if="moonrakerWarnings.length > 0">
       <div class="mb-2">
         {{ $t('app.general.error.app_warnings_found', { appName: 'Moonraker' }) }}
       </div>
@@ -52,10 +53,10 @@
         <li
           v-for="(warning, index) in moonrakerWarnings"
           :key="index"
-          v-html="warning"
+          v-html="linkExternalUrls(warning)"
         />
       </ul>
-    </div>
+    </template>
 
     <div v-if="printerWarnings.length > 0">
       <span v-html="printerWarningsTxt" />
@@ -70,6 +71,7 @@
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 import { Globals } from '@/globals'
+import linkExternalUrls from '@/util/link-external-urls'
 
 @Component({
   components: {}
@@ -114,5 +116,7 @@ export default class AppWarnings extends Mixins(StateMixin) {
   get moonrakerWarnings () {
     return this.$store.getters['printer/getMoonrakerWarnings']
   }
+
+  linkExternalUrls = linkExternalUrls
 }
 </script>

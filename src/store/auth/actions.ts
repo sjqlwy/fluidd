@@ -1,12 +1,10 @@
 import Vue from 'vue'
-import { ActionTree } from 'vuex'
-import { AuthState } from './types'
-import { RootState } from '../types'
-import { authApi } from '@/api/auth.api'
-import httpClient from '@/api/httpClient'
-import { getTokenKeys } from './helpers'
+import type { ActionTree } from 'vuex'
+import type { AuthState } from './types'
+import type { RootState } from '../types'
+import { httpClientActions } from '@/api/httpClientActions'
 import router from '@/router'
-import consola from 'consola'
+import { consola } from 'consola'
 
 export const actions: ActionTree<AuthState, RootState> = {
   /**
@@ -21,17 +19,17 @@ export const actions: ActionTree<AuthState, RootState> = {
    */
   async init ({ commit }) {
     // Load current user.
-    await authApi.getCurrentUser()
+    await httpClientActions.accessCurrentUserGet()
       .then(response => response.data.result)
       .then((user) => commit('setCurrentUser', user))
 
     // Load user list.
-    await authApi.getUsers()
+    await httpClientActions.accessUsersListGet()
       .then(response => response.data.result.users)
       .then((users) => commit('setUsers', users))
 
     // Load our current API key.
-    await authApi.getApiKey()
+    await httpClientActions.accessApiKeyGet()
       .then(response => response.data.result)
       .then((key) => commit('setApiKey', key))
   },
@@ -39,17 +37,17 @@ export const actions: ActionTree<AuthState, RootState> = {
   /**
    * Init auth status / tokens.
    */
-  async initAuth ({ commit, rootState }) {
+  async initAuth ({ commit, rootState, rootGetters }) {
     // No known API?
     // This is likely a new setup with no known instances yet. Set auth to true
     // and move on until we know more.
-    if (rootState.config?.apiUrl === '') {
+    if (rootState.config.apiUrl === '') {
       commit('setAuthenticated', true)
       return
     }
 
     // Load our tokens and apply them if found.
-    const keys = getTokenKeys()
+    const keys = rootGetters['config/getTokenKeys']
     const refreshToken = localStorage.getItem(keys['refresh-token'])
     const token = localStorage.getItem(keys['user-token'])
     if (token && refreshToken) {
@@ -57,10 +55,10 @@ export const actions: ActionTree<AuthState, RootState> = {
       // header.
       commit('setToken', token)
       commit('setRefreshToken', refreshToken)
-      httpClient.defaults.headers.common.Authorization = `Bearer ${token}`
+      httpClientActions.defaults.headers.common.Authorization = `Bearer ${token}`
     } else {
       // No tokens, delete auth header.
-      delete httpClient.defaults.headers.common.Authorization
+      delete httpClientActions.defaults.headers.common.Authorization
     }
   },
 
@@ -73,10 +71,9 @@ export const actions: ActionTree<AuthState, RootState> = {
       const now = Date.now() / 1000 // now in unixtime.
       const isExpiring = (exp - now) < 300 // refresh within 5 minutes / 5 * 60
       if (isExpiring) {
-        consola.debug('checkToken - isExpiring', Vue.$dayjs(now * 1000), Vue.$dayjs(exp * 1000))
+        consola.debug('checkToken - isExpiring', new Date(now * 1000), new Date(exp * 1000))
         return true
       } else {
-        // console.debug('checkToken - not isExpiring', Vue.$dayjs(now * 1000), Vue.$dayjs(exp * 1000))
         return false
       }
     }
@@ -86,78 +83,102 @@ export const actions: ActionTree<AuthState, RootState> = {
   /**
    * Refresh the auth tokens.
    */
-  async refreshTokens ({ commit }) {
-    const keys = getTokenKeys()
+  async refreshTokens ({ commit, rootGetters }) {
+    const keys = rootGetters['config/getTokenKeys']
     const refresh_token = localStorage.getItem(keys['refresh-token'])
-    return httpClient.post('/access/refresh_jwt', {
-      refresh_token
-    }, {
-      withAuth: false
-    })
-      .then(response => response.data.result)
-      .then((response) => {
-        // We've successfully retrieved a token. Set the new header and
-        // store data, and move on.
-        localStorage.setItem(keys['user-token'], response.token)
-        commit('setToken', response.token)
-        httpClient.defaults.headers.common.Authorization = `Bearer ${response.token}`
-        return Promise.resolve(response.token)
+
+    try {
+      const response = await httpClientActions.accessRefreshJwtPost(refresh_token || '', {
+        withAuth: false,
+        headers: {
+          Authorization: undefined
+        }
       })
-      .catch(() => {
-        // Error on refresh, we resolve and move on because our request will
-        // invoke a 401, which will then send the user to the login page.
-        return Promise.resolve()
-      })
+
+      const user = response.data.result
+
+      // We've successfully retrieved a token. Set the new header and
+      // store data, and move on.
+      localStorage.setItem(keys['user-token'], user.token)
+      commit('setToken', user.token)
+      httpClientActions.defaults.headers.common.Authorization = `Bearer ${user.token}`
+      return user.token
+    } catch {
+      // Error on refresh, we resolve and move on because our request will
+      // invoke a 401, which will then send the user to the login page.
+    }
   },
 
-  async login ({ commit }, payload) {
-    const keys = getTokenKeys()
-    return authApi.login(payload.username, payload.password)
-      .then(response => response.data.result)
-      .then((user) => {
-        // Successful login. Set the tokens and auth status and move on.
-        localStorage.setItem(keys['user-token'], user.token)
-        localStorage.setItem(keys['refresh-token'], user.refresh_token)
-        httpClient.defaults.headers.common.Authorization = `Bearer ${user.token}`
-        commit('setAuthenticated', true)
-        commit('setCurrentUser', user.username)
-        commit('setToken', user.token)
-        commit('setRefreshToken', user.refresh_token)
-        return Promise.resolve(user)
+  async getAuthInfo () {
+    try {
+      const response = await httpClientActions.accessInfoGet({ withAuth: false })
+
+      return {
+        defaultSource: response.data.result.default_source,
+        availableSources: response.data.result.available_sources
+      }
+    } catch {
+      // external authentication sources not supported
+      return {}
+    }
+  },
+
+  async login ({ commit, rootGetters }, { username, password, source }) {
+    const keys = rootGetters['config/getTokenKeys']
+
+    try {
+      const response = await httpClientActions.accessLoginPost(username, password, source, {
+        headers: {
+          Authorization: undefined
+        }
       })
-      .catch(err => {
-        // Unsuccessful login. Remove any existing keys, set auth and move on.
-        localStorage.removeItem(keys['user-token'])
-        localStorage.removeItem(keys['refresh-token'])
-        delete httpClient.defaults.headers.common.Authorization
-        return Promise.reject(err)
+
+      const user = response.data.result
+
+      // Successful login. Set the tokens and auth status and move on.
+      localStorage.setItem(keys['user-token'], user.token)
+      localStorage.setItem(keys['refresh-token'], user.refresh_token)
+      httpClientActions.defaults.headers.common.Authorization = `Bearer ${user.token}`
+      commit('setAuthenticated', true)
+      commit('setCurrentUser', {
+        username: user.username,
+        source: user.source
       })
+      commit('setToken', user.token)
+      commit('setRefreshToken', user.refresh_token)
+
+      return user
+    } catch (error: unknown) {
+      // Unsuccessful login. Remove any existing keys, set auth and move on.
+      localStorage.removeItem(keys['user-token'])
+      localStorage.removeItem(keys['refresh-token'])
+      delete httpClientActions.defaults.headers.common.Authorization
+      throw error
+    }
   },
 
   /**
    * Logout the user. This should remove their token from local storage,
    * shut down the socket and send them back to the login page.
    */
-  async logout ({ commit }, options?: { invalidate: boolean; partial: boolean }) {
+  async logout ({ commit, rootGetters }, options?: { invalidate: boolean; partial: boolean }) {
     const opts = {
-      ...{
-        invalidate: false,
-        partial: false
-      },
+      invalidate: false,
+      partial: false,
       ...options
     }
 
-    const keys = getTokenKeys()
+    const keys = rootGetters['config/getTokenKeys']
 
     // Do we want to invalidate all sessions?
-    if (opts.invalidate) await authApi.logout()
+    if (opts.invalidate) await httpClientActions.accessLogoutPost()
 
     // Remove the tokens from local storage..
     localStorage.removeItem(keys['user-token'])
     localStorage.removeItem(keys['refresh-token'])
 
     // Remove the authentication header.
-    delete httpClient.defaults.headers.common.Authorization
+    delete httpClientActions.defaults.headers.common.Authorization
 
     // Clear the in memory store.
     commit('setCurrentUser', null)
@@ -170,7 +191,9 @@ export const actions: ActionTree<AuthState, RootState> = {
     if (!opts.partial) {
       if (Vue.$socket) Vue.$socket.close()
       commit('setAuthenticated', false)
-      if (router.currentRoute.path !== '/login') router.push('/login')
+      if (router.currentRoute.name !== 'login') {
+        await router.push({ name: 'login' })
+      }
     }
   },
 
@@ -179,41 +202,41 @@ export const actions: ActionTree<AuthState, RootState> = {
    * and / or trust check, in that if the user is not trusted - then we log
    * them out which bumps them to the login page.
    */
-  async checkTrust ({ dispatch, commit }) {
-    const keys = getTokenKeys()
+  async checkTrust ({ dispatch, commit, rootGetters }) {
+    const keys = rootGetters['config/getTokenKeys']
     const token = localStorage.getItem(keys['user-token'])
 
     // Clear the token.
-    delete httpClient.defaults.headers.common.Authorization
+    delete httpClientActions.defaults.headers.common.Authorization
 
-    // Make the request.
-    await authApi.getCurrentUser({ withAuth: false })
-      .then((user) => {
-        // Re-apply the token.
-        httpClient.defaults.headers.common.Authorization = `Bearer ${token}`
+    try {
+      // Make the request.
+      const response = await httpClientActions.accessCurrentUserGet({ withAuth: false })
 
-        // no error, so must be trusted. partial logout.
-        dispatch('logout', { partial: true })
-        commit('setCurrentUser', user.data.result)
-      })
-      .catch(() => {
-        // error. not trusted. log'em out.
-        dispatch('logout')
-      })
+      const user = response.data.result
+
+      // Re-apply the token.
+      httpClientActions.defaults.headers.common.Authorization = `Bearer ${token}`
+
+      // no error, so must be trusted. partial logout.
+      dispatch('logout', { partial: true })
+      commit('setCurrentUser', user)
+    } catch {
+      // error. not trusted. log'em out.
+      dispatch('logout')
+    }
   },
 
   async addUser (_, user) {
-    return authApi.addUser(user)
-      .then(() => {
-        return Promise.resolve(user)
-      })
+    await httpClientActions.accessUserPost(user.username, user.password)
+
+    return user
   },
 
   async removeUser (_, user) {
-    return authApi.removeUser(user)
-      .then(() => {
-        return Promise.resolve(user)
-      })
+    await httpClientActions.accessUserDelete(user.username)
+
+    return user
   },
 
   async onUserCreated ({ commit }, user) {
@@ -225,8 +248,10 @@ export const actions: ActionTree<AuthState, RootState> = {
   },
 
   async refreshApiKey ({ commit }) {
-    return authApi.refreshApiKey()
-      .then(response => response.data.result)
-      .then((key) => commit('setApiKey', key))
+    const response = await httpClientActions.accessApiKeyPost()
+
+    const key = response.data.result
+
+    commit('setApiKey', key)
   }
 }

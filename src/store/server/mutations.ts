@@ -1,7 +1,7 @@
 import Vue from 'vue'
-import { MutationTree } from 'vuex'
-import { defaultState } from './'
-import { ServerState, ServiceState } from './types'
+import type { MutationTree } from 'vuex'
+import { defaultState } from './state'
+import type { CanbusUuid, Peripherals, ServerInfo, ServerState, ServiceState, SystemInfo } from './types'
 
 export const mutations: MutationTree<ServerState> = {
   /**
@@ -11,19 +11,42 @@ export const mutations: MutationTree<ServerState> = {
     Object.assign(state, defaultState())
   },
 
-  setServerInfo (state, payload) {
+  setResetKlippy (state) {
+    const { klippy_retries, info } = defaultState()
+
+    Object.assign(state, {
+      klippy_retries,
+      info
+    })
+  },
+
+  setServerInfo (state, payload: ServerInfo) {
     Vue.set(state, 'info', payload)
   },
 
-  setSystemInfo (state, payload) {
+  setSystemInfo (state, payload: { system_info?: SystemInfo }) {
     if (payload.system_info) {
       Vue.set(state, 'system_info', payload.system_info)
     }
   },
 
+  setMachinePeripherals (state, payload: Partial<Peripherals>) {
+    state.peripherals = {
+      ...state.peripherals,
+      ...payload
+    }
+  },
+
+  setMachinePeripheralsCanbus (state, payload: { canbusInterface: string, can_uuids: CanbusUuid[] }) {
+    state.can_uuids = {
+      ...state.can_uuids,
+      [payload.canbusInterface]: payload.can_uuids
+    }
+  },
+
   setServiceState (state, payload: ServiceState) {
-    if (payload) {
-      Object.assign(state.system_info?.service_state, payload)
+    if (payload && state.system_info?.service_state) {
+      Object.assign(state.system_info.service_state, payload)
     }
   },
 

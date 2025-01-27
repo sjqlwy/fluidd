@@ -1,163 +1,172 @@
 <template>
-  <v-dialog
-    :value="value"
-    :max-width="850"
-    scrollable
-    @input="$emit('input', $event)"
+  <app-dialog
+    v-model="open"
+    :title="$t('app.keyboard_shortcuts.title.keyboard_shortcuts')"
+    max-width="400"
+    no-actions
   >
-    <v-card>
-      <v-card-title class="card-heading py-2 px-5">
-        <span class="focus--text">
-          {{ $t('app.file_system.title.keyboard_shortcuts') }}
-        </span>
-        <v-spacer />
-        <app-btn
-          v-if="!$vuetify.breakpoint.smAndDown"
-          icon
-          color=""
-          @click="$emit('input', false)"
-        >
-          <v-icon>$close</v-icon>
-        </app-btn>
-      </v-card-title>
+    <v-card-text class="pa-0">
+      <v-card flat>
+        <v-card-title>{{ $t('app.keyboard_shortcuts.label.navigation') }}</v-card-title>
 
-      <v-card-text class="pa-0">
-        <v-simple-table>
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th>Windows / Linux</th>
-              <th>Mac</th>
-            </tr>
-          </thead>
-
+        <v-simple-table dense>
           <tbody>
             <tr>
-              <td>Search</td>
-              <td>Ctrl + F</td>
-              <td>Command + F</td>
+              <th>{{ $t('app.general.title.home') }}</th>
+              <td><kbd>{{ keyboardShortcuts.home }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Increase Indent</td>
-              <td>Tab</td>
-              <td>Tab</td>
+              <th>{{ $t('app.general.title.console') }}</th>
+              <td><kbd>{{ keyboardShortcuts.console }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Decrease Indent</td>
-              <td>Shift + Tab</td>
-              <td>Shift + Tab</td>
+              <th>{{ $t('app.general.title.gcode_preview') }}</th>
+              <td><kbd>{{ keyboardShortcuts.gcode_preview }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Comment Out</td>
-              <td>Ctrl + /</td>
-              <td>Command + /</td>
+              <th>{{ $t('app.general.title.jobs') }}</th>
+              <td><kbd>{{ keyboardShortcuts.jobs }}</kbd></td>
             </tr>
-
-            <tr>
-              <td>Comment In</td>
-              <td>Ctrl + /</td>
-              <td>Command + /</td>
+            <tr v-if="supportsHistory">
+              <th>{{ $t('app.general.title.history') }}</th>
+              <td><kbd>{{ keyboardShortcuts.history }}</kbd></td>
             </tr>
-
-            <tr>
-              <td>Undo</td>
-              <td>Ctrl + Z</td>
-              <td>Command + Z</td>
+            <tr v-if="supportsTimelapse">
+              <th>{{ $t('app.general.title.timelapse') }}</th>
+              <td><kbd>{{ keyboardShortcuts.timelapse }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Redo</td>
-              <td>Ctrl + Y</td>
-              <td>Shift + Command + Z or Command + Y</td>
+              <th>{{ $t('app.general.title.tune') }}</th>
+              <td><kbd>{{ keyboardShortcuts.tune }}</kbd></td>
             </tr>
-
-            <tr>
-              <td>Decrease Indent</td>
-              <td>Ctrl + [</td>
-              <td>Command + [</td>
+            <tr v-if="enableDiagnostics">
+              <th>{{ $t('app.general.title.diagnostics') }}</th>
+              <td><kbd>{{ keyboardShortcuts.diagnostics }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Increase Indent</td>
-              <td>Ctrl + ]</td>
-              <td>Command + ]</td>
+              <th>{{ $t('app.general.title.configure') }}</th>
+              <td><kbd>{{ keyboardShortcuts.configure }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Move the line down</td>
-              <td>Alt + Down</td>
-              <td>Option + Down</td>
+              <th>{{ $t('app.general.title.system') }}</th>
+              <td><kbd>{{ keyboardShortcuts.system }}</kbd></td>
             </tr>
-
             <tr>
-              <td>Move the line up</td>
-              <td>Alt + Up</td>
-              <td>Option + Up</td>
-            </tr>
-
-            <tr>
-              <td>Replace</td>
-              <td>Ctrl + F</td>
-              <td>Command + Alt + F</td>
-            </tr>
-
-            <tr>
-              <td>Select all</td>
-              <td>Ctrl + A</td>
-              <td>Command + A</td>
-            </tr>
-
-            <tr>
-              <td>Select downward</td>
-              <td>Shift + Down</td>
-              <td>Shift + Down</td>
-            </tr>
-
-            <tr>
-              <td>Select right</td>
-              <td>Shift + Right</td>
-              <td>Shift + Right</td>
-            </tr>
-
-            <tr>
-              <td>Select left</td>
-              <td>Shift + Left</td>
-              <td>Shift + Left</td>
-            </tr>
-
-            <tr>
-              <td>Select upward</td>
-              <td>Shift + Up</td>
-              <td>Shift + Up</td>
-            </tr>
-
-            <tr>
-              <td>Select to the end</td>
-              <td>Alt + Shift + Right</td>
-              <td>Command + Shift + Right</td>
-            </tr>
-
-            <tr>
-              <td>Select to the start</td>
-              <td>Alt + Shift + Left</td>
-              <td>Command + Shift + Left</td>
+              <th>{{ $t('app.general.title.settings') }}</th>
+              <td><kbd>{{ keyboardShortcuts.settings }}</kbd></td>
             </tr>
           </tbody>
         </v-simple-table>
-      </v-card-text>
-    </v-card>
-  </v-dialog>
+      </v-card>
+
+      <v-card flat>
+        <v-card-title>{{ $t('app.keyboard_shortcuts.label.tool') }}</v-card-title>
+
+        <v-simple-table dense>
+          <tbody>
+            <tr>
+              <th>{{ $t('app.keyboard_shortcuts.label.home_all') }}</th>
+              <td><kbd>Shift</kbd> + <kbd>h</kbd></td>
+            </tr>
+          </tbody>
+        </v-simple-table>
+      </v-card>
+
+      <v-card flat>
+        <v-card-title>{{ $t('app.keyboard_shortcuts.label.printing') }}</v-card-title>
+
+        <v-simple-table dense>
+          <tbody>
+            <tr>
+              <th>{{ $t('app.keyboard_shortcuts.label.pause') }}</th>
+              <td><kbd>Shift</kbd> + <kbd>p</kbd></td>
+            </tr>
+            <tr>
+              <th>{{ $t('app.keyboard_shortcuts.label.cancel') }}</th>
+              <td><kbd>Shift</kbd> + <kbd>c</kbd></td>
+            </tr>
+          </tbody>
+        </v-simple-table>
+      </v-card>
+
+      <v-card flat>
+        <v-card-title>{{ $t('app.keyboard_shortcuts.label.actions') }}</v-card-title>
+
+        <v-simple-table dense>
+          <tbody>
+            <tr>
+              <th>{{ $t('app.keyboard_shortcuts.label.emergency_stop') }}</th>
+              <td><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>e</kbd></td>
+            </tr>
+            <tr>
+              <th>{{ $t('app.keyboard_shortcuts.label.open_keyboard_shortcut_help') }}</th>
+              <td><kbd>?</kbd></td>
+            </tr>
+          </tbody>
+        </v-simple-table>
+      </v-card>
+    </v-card-text>
+  </app-dialog>
 </template>
 
 <script lang="ts">
-import { Component, Vue, Prop } from 'vue-property-decorator'
+import { Globals } from '@/globals'
+import { eventTargetIsContentEditable, keyboardEventToKeyboardShortcut } from '@/util/event-helpers'
+import { Component, Vue } from 'vue-property-decorator'
 
 @Component({})
-export default class VersionInformationDialog extends Vue {
-  @Prop({ type: Boolean, required: true })
-  value!: boolean
+export default class KeyboardShortcutsDialog extends Vue {
+  open = false
+
+  get keyboardShortcuts () {
+    return Globals.KEYBOARD_SHORTCUTS
+  }
+
+  get enableKeyboardShortcuts (): boolean {
+    return this.$store.state.config.uiSettings.general.enableKeyboardShortcuts
+  }
+
+  get supportsHistory (): boolean {
+    return this.$store.getters['server/componentSupport']('history')
+  }
+
+  get supportsTimelapse (): boolean {
+    return this.$store.getters['server/componentSupport']('timelapse')
+  }
+
+  get enableDiagnostics (): boolean {
+    return this.$store.state.config.uiSettings.general.enableDiagnostics
+  }
+
+  handleKeyDown (event: KeyboardEvent) {
+    if (!this.enableKeyboardShortcuts) {
+      return
+    }
+
+    const shortcut = keyboardEventToKeyboardShortcut(event)
+
+    if (
+      ['?', 'Shift+?'].includes(shortcut) &&
+      !eventTargetIsContentEditable(event)
+    ) {
+      event.preventDefault()
+
+      this.open = true
+    }
+  }
+
+  created () {
+    window.addEventListener('keydown', this.handleKeyDown, false)
+  }
+
+  beforeDestroy () {
+    window.removeEventListener('keydown', this.handleKeyDown)
+  }
 }
 </script>
+
+<style lang="scss" scoped>
+  td:nth-child(2) {
+    text-align: right;
+  }
+</style>

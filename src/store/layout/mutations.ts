@@ -1,15 +1,15 @@
 import Vue from 'vue'
-import { MutationTree } from 'vuex'
-import getAllLayouts from '@/util/get-all-layouts'
-import { defaultState } from './'
-import { LayoutConfig, LayoutState, Layouts } from './types'
+import type { MutationTree } from 'vuex'
+import { defaultState as getDefaultState } from './state'
+import type { LayoutConfig, LayoutState, Layouts } from './types'
+import type { DiagnosticsCardContainer } from '../diagnostics/types'
 
 export const mutations: MutationTree<LayoutState> = {
   /**
    * Reset state
    */
   setReset (state) {
-    Object.assign(state, defaultState())
+    Object.assign(state, getDefaultState())
   },
 
   /**
@@ -18,38 +18,59 @@ export const mutations: MutationTree<LayoutState> = {
    * being the default state, and newly added components users may not
    * have in their moonraker db.
    */
-  setInitLayout (state, payload) {
+  setInitLayout (state, payload: LayoutState) {
     if (payload && Object.keys(payload).length > 0) {
-      const defaultComponents = Object.assign({}, defaultState())
-      const supportedComponents = getAllLayouts(defaultComponents.layouts)
+      const defaultState = getDefaultState()
 
-      for (const _layout in payload.layouts) {
-        const layout = payload.layouts[_layout]
-        for (const _container in layout) {
-          const container = layout[_container]
-          // Remove components that may no longer exist.
-          payload.layouts[_layout][_container] = container
-            .filter((config: LayoutConfig) => {
-              const i = supportedComponents.findIndex(o => o.id === config.id)
-              if (i >= 0) {
-                // Remove this layout from the supported list.
-                supportedComponents.splice(i, 1)
-              }
-              return i >= 0
-            })
+      // add new layouts
+      for (const [layoutKey, defaultLayout] of Object.entries(defaultState.layouts)) {
+        if (!payload.layouts[layoutKey]) {
+          payload.layouts[layoutKey] = defaultLayout
         }
       }
 
-      // Missing compontents? Add'em.
-      supportedComponents.forEach(o => {
-        if (o.layout && o.container) {
-          if (payload.layouts[o.layout][o.container]) {
-            payload.layouts[o.layout][o.container].push(o)
-          } else {
-            payload.layouts[o.layout][o.container] = [o]
+      // migrate existing layouts
+      const migratableLayoutKeys = ['dashboard']
+
+      for (const [layoutKey, currentLayout] of Object.entries(payload.layouts)) {
+        for (const [containerKey, components] of Object.entries(currentLayout)) {
+          currentLayout[containerKey] = components
+            .filter(card => card != null)
+        }
+
+        const migratableLayoutKey = migratableLayoutKeys.find(key => layoutKey.startsWith(key))
+
+        if (migratableLayoutKey) {
+          const defaultLayout = defaultState.layouts[migratableLayoutKey]
+          const defaultComponentIds = Object.values(defaultLayout).flat().map(card => card.id)
+          const currentComponentIds = Object.values(currentLayout).flat().map(card => card.id)
+
+          for (const [containerKey, defaultContainerComponents] of Object.entries(defaultLayout)) {
+            const currentContainerComponents = currentLayout[containerKey] || []
+
+            currentLayout[containerKey] = [
+              ...currentContainerComponents.filter(component => defaultComponentIds.includes(component.id)),
+              ...defaultContainerComponents.filter(component => !currentComponentIds.includes(component.id))
+            ]
           }
         }
-      })
+
+        // diagnostics specific layout updates
+        if (layoutKey.startsWith('diagnostics')) {
+          const diagnostics = currentLayout as DiagnosticsCardContainer
+
+          for (const diagnosticsCardConfigs of Object.values(diagnostics)) {
+            for (const diagnosticsCardConfig of diagnosticsCardConfigs) {
+              for (const axis of diagnosticsCardConfig.axes) {
+                for (const metric of axis.metrics) {
+                  metric.style.fillColor = metric.style.fillColor ?? null
+                }
+              }
+            }
+          }
+        }
+      }
+
       Object.assign(state, payload)
     }
   },

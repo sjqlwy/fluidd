@@ -2,7 +2,7 @@
   <v-layout class="console-item">
     <span
       v-if="value.time"
-      class="secondary--text mr-3 d-none d-sm-block"
+      class="secondary--text mr-3 d-none d-sm-block text-no-wrap"
     >
       {{ itemTime }}&nbsp;
     </span>
@@ -17,23 +17,22 @@
 <script lang="ts">
 import { Component, Prop, Vue } from 'vue-property-decorator'
 import { Globals } from '@/globals'
-import { ConsoleEntry } from '@/store/console/types'
+import type { ConsoleEntry, GcodeHelp } from '@/store/console/types'
 
 @Component({})
 export default class ConsoleItem extends Vue {
-  @Prop({ type: Object, default: {} })
-  value!: ConsoleEntry
+  @Prop({ type: Object, default: () => {} })
+  readonly value!: ConsoleEntry
 
   get knownCommands () {
-    const availableCommands = this.$store.getters['console/getAllGcodeCommands']
-    return new Set(Object.keys(availableCommands))
+    return this.$store.getters['console/getAllKnownCommands'] as GcodeHelp
   }
 
   get itemMessage () {
     let message = this.value.message
     if (this.value.type === 'response') {
-      message = this.value.message.replace(/([A-Z0-9_]{2,})/gm, (match, command) => {
-        if (this.knownCommands.has(command)) return `<a class="primary--text text--lighten-1">${command.toUpperCase()}</a>`
+      message = this.value.message.replace(/([A-Z_][A-Z0-9_.]+)/g, (match, command) => {
+        if (command in this.knownCommands) return `<a class="primary--text text--lighten-1">${command.toUpperCase()}</a>`
         return match
       })
     }
@@ -44,7 +43,7 @@ export default class ConsoleItem extends Vue {
 
   get itemTime () {
     return (this.value.time)
-      ? this.$dayjs(this.value.time * 1000).format('HH:mm:ss')
+      ? this.$filters.formatTimeWithSeconds(this.value.time * 1000)
       : ''
   }
 
@@ -65,10 +64,12 @@ export default class ConsoleItem extends Vue {
   }
 
   itemClick (event: Event) {
-    const target = event.target as Element
-    if (target.tagName.toLowerCase() === 'a') {
-      const c = target.innerHTML.replaceAll(/<br>/g, '\n').replace(/^\s+|\s+$/gm, '')
-      this.$emit('click', c)
+    if (event.target instanceof HTMLAnchorElement) {
+      const command = event.target.innerHTML
+        .replace(/<br>/g, '\n')
+        .replace(/^\s+|\s+$/gm, '')
+
+      this.$emit('click', command)
     }
   }
 }

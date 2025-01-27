@@ -1,23 +1,11 @@
 <template>
-  <v-dialog
-    :value="value"
-    :max-width="640"
-    @input="$emit('input', $event)"
+  <app-dialog
+    v-model="open"
+    :title="$t('app.timelapse.title.render_settings')"
+    max-width="640"
+    :no-actions="!renderable"
   >
-    <v-card v-if="value">
-      <v-card-title class="card-heading py-2">
-        <span class="focus--text">{{ $t('app.timelapse.title.render_settings') }}</span>
-
-        <v-spacer />
-        <app-btn
-          color=""
-          icon
-          @click="$emit('input', false)"
-        >
-          <v-icon>$close</v-icon>
-        </app-btn>
-      </v-card-title>
-
+    <v-card-text class="pa-0">
       <app-setting
         :title="$t('app.timelapse.setting.variable_fps')"
         :sub-title="subtitleIfBlocked(variableFpsBlocked)"
@@ -31,6 +19,7 @@
       </app-setting>
 
       <v-divider />
+
       <app-setting
         v-if="!variableFps"
         :title="$t('app.timelapse.setting.output_framerate')"
@@ -39,9 +28,13 @@
         <v-text-field
           ref="outputFramerateElement"
           :value="outputFramerate"
-          :rules="[rules.numRequired, rules.validNum, rules.numMin]"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(0)
+          ]"
           :disabled="outputFramerateBlocked"
-          :hide-details="outputFramerateElement ? outputFramerateElement.valid : true"
+          hide-details="auto"
           filled
           dense
           single-line
@@ -49,7 +42,8 @@
           @change="setOutputFramerate"
         />
       </app-setting>
-      <div v-else>
+
+      <template v-else>
         <app-setting
           :title="$t('app.timelapse.setting.targetlength')"
           :sub-title="subtitleIfBlocked(targetLengthBlocked)"
@@ -57,9 +51,13 @@
           <v-text-field
             ref="targetLengthElement"
             :value="targetLength"
-            :rules="[rules.numRequired, rules.validNum, rules.numMin]"
+            :rules="[
+              $rules.required,
+              $rules.numberValid,
+              $rules.numberGreaterThanOrEqual(0)
+            ]"
             :disabled="targetLengthBlocked"
-            :hide-details="targetLengthElement ? targetLengthElement.valid : true"
+            hide-details="auto"
             filled
             dense
             single-line
@@ -69,6 +67,7 @@
         </app-setting>
 
         <v-divider />
+
         <app-setting
           :title="$t('app.timelapse.setting.variable_fps_min')"
           :sub-title="subtitleIfBlocked(minFpsBlocked)"
@@ -76,9 +75,13 @@
           <v-text-field
             ref="minFpsElement"
             :value="minFps"
-            :rules="[rules.numRequired, rules.validNum, rules.numMin]"
+            :rules="[
+              $rules.required,
+              $rules.numberValid,
+              $rules.numberGreaterThanOrEqual(0)
+            ]"
             :disabled="minFpsBlocked"
-            :hide-details="minFpsElement ? minFpsElement.valid : true"
+            hide-details="auto"
             filled
             dense
             single-line
@@ -88,6 +91,7 @@
         </app-setting>
 
         <v-divider />
+
         <app-setting
           :title="$t('app.timelapse.setting.variable_fps_max')"
           :sub-title="subtitleIfBlocked(maxFpsBlocked)"
@@ -95,9 +99,13 @@
           <v-text-field
             ref="maxFpsElement"
             :value="maxFps"
-            :rules="[rules.numRequired, rules.validNum, rules.numMin]"
+            :rules="[
+              $rules.required,
+              $rules.numberValid,
+              $rules.numberGreaterThanOrEqual(0)
+            ]"
             :disabled="maxFpsBlocked"
-            :hide-details="maxFpsElement ? maxFpsElement.valid : true"
+            hide-details="auto"
             filled
             dense
             single-line
@@ -105,9 +113,10 @@
             @change="setMaxFps"
           />
         </app-setting>
-      </div>
+      </template>
 
       <v-divider />
+
       <app-setting
         :title="$t('app.timelapse.setting.saveframes')"
         :sub-title="subtitleIfBlocked(saveFramesBlocked)"
@@ -121,6 +130,7 @@
       </app-setting>
 
       <v-divider />
+
       <app-setting
         :title="$t('app.timelapse.setting.duplicatelastframe')"
         :sub-title="subtitleIfBlocked(duplicateFramesBlocked)"
@@ -128,9 +138,13 @@
         <v-text-field
           ref="duplicateFramesElement"
           :value="duplicateFrames"
-          :rules="[rules.numRequired, rules.validNum, rules.numMin]"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(0)
+          ]"
           :disabled="duplicateFramesBlocked"
-          :hide-details="duplicateFramesElement ? duplicateFramesElement.valid : true"
+          hide-details="auto"
           filled
           dense
           single-line
@@ -140,7 +154,8 @@
       </app-setting>
 
       <v-divider />
-      <app-slider
+
+      <app-named-slider
         :value="crf"
         class="px-4 pt-3"
         style="overflow: hidden"
@@ -153,6 +168,7 @@
       />
 
       <v-divider />
+
       <app-setting
         :title="$t('app.timelapse.setting.previewimage')"
         :sub-title="subtitleIfBlocked(previewImageBlocked)"
@@ -164,61 +180,59 @@
           @click.native.stop
         />
       </app-setting>
+    </v-card-text>
 
-      <v-divider v-if="renderable" />
-      <v-card-actions
-        v-if="renderable"
-        class="pt-4"
-      >
-        <v-spacer />
-        <v-tooltip left>
-          <template #activator="{ on, attrs }">
-            <app-btn
-              v-bind="attrs"
-              color="primary"
-              v-on="on"
-              @click="renderTimelapse"
-            >
-              <v-icon>$play</v-icon>
-              {{ $t('app.timelapse.btn.render') }}
-            </app-btn>
-          </template>
-          <span>{{ $t('app.timelapse.label.length', { length: lengthEstimate }) }}</span>
-        </v-tooltip>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
+    <template #actions>
+      <v-spacer />
+
+      <v-tooltip left>
+        <template #activator="{ on, attrs }">
+          <app-btn
+            v-bind="attrs"
+            color="primary"
+            v-on="on"
+            @click="renderTimelapse"
+          >
+            <v-icon>$play</v-icon>
+            {{ $t('app.timelapse.btn.render') }}
+          </app-btn>
+        </template>
+        <span>{{ $t('app.timelapse.label.length', { length: lengthEstimate }) }}</span>
+      </v-tooltip>
+    </template>
+  </app-dialog>
 </template>
 
 <script lang="ts">
-import { Component, Prop, Mixins, Ref } from 'vue-property-decorator'
+import { Component, Prop, Mixins, Ref, VModel } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 import { SocketActions } from '@/api/socketActions'
-import AppSetting from '@/components/ui/AppSetting.vue'
-import { TimelapseLastFrame, TimelapseSettings } from '@/store/timelapse/types'
-import { defaultWritableSettings } from '@/store/timelapse'
+import type { TimelapseLastFrame, TimelapseSettings } from '@/store/timelapse/types'
+import { defaultWritableSettings } from '@/store/timelapse/state'
+import type { VInput } from '@/types'
 
-@Component({
-  components: { AppSetting }
-})
+@Component({})
 export default class TimelapseRenderSettingsDialog extends Mixins(StateMixin) {
-  @Prop({ type: Boolean, required: true })
-  value!: boolean
+  @VModel({ type: Boolean })
+  open?: boolean
 
   @Prop({ type: Boolean, required: true })
-  renderable!: boolean
+  readonly renderable!: boolean
 
-  @Ref('outputFramerateElement') outputFramerateElement!: any
-  @Ref('targetLengthElement') targetLengthElement!: any
-  @Ref('minFpsElement') minFpsElement!: any
-  @Ref('maxFpsElement') maxFpsElement!: any
-  @Ref('duplicateFramesElement') duplicateFramesElement!: any
+  @Ref('outputFramerateElement')
+  readonly outputFramerateElement!: VInput
 
-  rules = {
-    numRequired: (v: number | string) => v !== '' || this.$t('app.general.simple_form.error.required'),
-    validNum: (v: string) => !isNaN(+v) || this.$t('app.general.simple_form.error.invalid_number'),
-    numMin: (v: number) => v >= 0 || this.$t('app.general.simple_form.error.min', { min: 0 })
-  }
+  @Ref('targetLengthElement')
+  readonly targetLengthElement!: VInput
+
+  @Ref('minFpsElement')
+  readonly minFpsElement!: VInput
+
+  @Ref('maxFpsElement')
+  readonly maxFpsElement!: VInput
+
+  @Ref('duplicateFramesElement')
+  readonly duplicateFramesElement!: VInput
 
   get lengthEstimate () {
     const totalFrames = this.frameCount + this.duplicateLastFrameCount
@@ -349,7 +363,7 @@ export default class TimelapseRenderSettingsDialog extends Mixins(StateMixin) {
 
   renderTimelapse () {
     SocketActions.machineTimelapseRender()
-    this.$emit('input', false)
+    this.open = false
   }
 
   get frameCount () {
@@ -373,7 +387,7 @@ export default class TimelapseRenderSettingsDialog extends Mixins(StateMixin) {
   }
 
   get defaultCRF (): number {
-    return defaultWritableSettings.constant_rate_factor
+    return defaultWritableSettings().constant_rate_factor
   }
 
   get settings (): TimelapseSettings {
@@ -385,7 +399,7 @@ export default class TimelapseRenderSettingsDialog extends Mixins(StateMixin) {
   }
 
   subtitleIfBlocked (blocked: boolean): string {
-    return blocked ? this.$tc('app.timelapse.tooltip.managed_by_moonraker') : ''
+    return blocked ? this.$tc('app.general.tooltip.managed_by_moonraker') : ''
   }
 }
 </script>

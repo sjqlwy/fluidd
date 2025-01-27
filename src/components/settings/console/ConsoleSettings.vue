@@ -25,9 +25,9 @@
         </app-btn>
       </app-setting>
 
-      <v-divider />
-
       <template v-for="filter in filters">
+        <v-divider :key="`divider-${filter.name}`" />
+
         <app-setting
           :key="`filter-${filter.name}`"
           :r-cols="3"
@@ -37,38 +37,29 @@
           </template>
 
           <app-btn
-            fab
-            text
-            x-small
-            color=""
+            icon
             @click.stop="handleEditFilterDialog(filter)"
           >
-            <v-icon color="">
+            <v-icon dense>
               $edit
             </v-icon>
           </app-btn>
 
           <app-btn
-            fab
-            text
-            x-small
-            color=""
+            icon
             @click.stop="handleRemoveFilter(filter)"
           >
-            <v-icon color="">
-              $close
+            <v-icon dense>
+              $delete
             </v-icon>
           </app-btn>
         </app-setting>
-
-        <v-divider :key="`divider-${filter.name}`" />
       </template>
 
       <console-filter-dialog
         v-if="dialogState.open"
         v-model="dialogState.open"
         :filter="dialogState.filter"
-        :rules="dialogState.rules"
         @save="handleSaveFilter"
       />
     </v-card>
@@ -78,7 +69,7 @@
 <script lang="ts">
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
-import { ConsoleFilter, ConsoleFilterType } from '@/store/console/types'
+import type { ConsoleFilter } from '@/store/console/types'
 import ConsoleFilterDialog from './ConsoleFilterDialog.vue'
 
 @Component({
@@ -89,7 +80,6 @@ import ConsoleFilterDialog from './ConsoleFilterDialog.vue'
 export default class ConsoleSettings extends Mixins(StateMixin) {
   dialogState: any = {
     open: false,
-    rules: null,
     filter: null
   }
 
@@ -97,39 +87,32 @@ export default class ConsoleSettings extends Mixins(StateMixin) {
     return this.$store.getters['console/getFilters']
   }
 
-  handleEditFilterDialog (filter: ConsoleFilter) {
-    const filterCopy = filter
+  handleEditFilterDialog (filter: ConsoleFilter | null) {
+    const filterCopy: ConsoleFilter = filter
       ? { ...filter }
       : {
           id: '',
           enabled: true,
           name: '',
-          type: ConsoleFilterType.Contains,
+          type: 'contains',
           value: ''
         }
 
     this.dialogState = {
       open: true,
-      rules: {
-        required: (v: string) => !!v || this.$t('app.general.simple_form.error.required'),
-        uniqueName: (v: string) => !this.filters.some((c: ConsoleFilter) => c.id !== this.dialogState.filter.id && c.name.toLowerCase() === v.toLowerCase()) || this.$t('app.general.simple_form.error.exists'),
-        validExpression: (v: string) => {
-          try {
-            if (v) {
-              // eslint-disable-next-line
-              new RegExp(v)
-            }
-            return true
-          } catch (e) { }
-          return this.$t('app.general.simple_form.error.invalid_expression')
-        }
-      },
       filter: filterCopy
     }
   }
 
-  handleRemoveFilter (filter: ConsoleFilter) {
-    this.$store.dispatch('console/onRemoveFilter', filter)
+  async handleRemoveFilter (filter: ConsoleFilter) {
+    const result = await this.$confirm(
+      this.$t('app.general.simple_form.msg.confirm_remove_console_filter', { name: filter.name }).toString(),
+      { title: this.$tc('app.general.label.confirm'), color: 'card-heading', icon: '$error' }
+    )
+
+    if (result) {
+      this.$store.dispatch('console/onRemoveFilter', filter)
+    }
   }
 
   handleSaveFilter (filter: ConsoleFilter) {

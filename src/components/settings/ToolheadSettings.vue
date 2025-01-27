@@ -8,36 +8,6 @@
       dense
       class="mb-4"
     >
-      <app-setting :title="$t('app.setting.label.invert_x_control')">
-        <v-switch
-          v-model="invertX"
-          hide-details
-          class="mt-0 mb-4"
-        />
-      </app-setting>
-
-      <v-divider />
-
-      <app-setting :title="$t('app.setting.label.invert_y_control')">
-        <v-switch
-          v-model="invertY"
-          hide-details
-          class="mt-0 mb-4"
-        />
-      </app-setting>
-
-      <v-divider />
-
-      <app-setting :title="$t('app.setting.label.invert_z_control')">
-        <v-switch
-          v-model="invertZ"
-          hide-details
-          class="mt-0 mb-4"
-        />
-      </app-setting>
-
-      <v-divider />
-
       <app-setting
         :title="$t('app.setting.label.gcode_coords')"
         :sub-title="$t('app.setting.tooltip.gcode_coords')"
@@ -52,60 +22,212 @@
 
       <v-divider />
 
-      <app-setting :title="$t('app.setting.label.default_extrude_length')">
-        <v-text-field
-          :value="defaultExtrudeLength"
-          :rules="[rules.numRequired, rules.numMin]"
-          filled
-          dense
-          single-line
-          hide-details
-          suffix="mm"
-          @change="setDefaultExtrudeLength"
-        />
-      </app-setting>
-
-      <v-divider />
-
-      <app-setting :title="$t('app.setting.label.default_extrude_speed')">
-        <v-text-field
-          :value="defaultExtrudeSpeed"
-          :rules="[rules.numRequired, rules.numMin]"
-          filled
-          dense
-          single-line
-          hide-details
-          suffix="mm/s"
-          @change="setDefaultExtrudeSpeed"
-        />
-      </app-setting>
-
-      <v-divider />
-
-      <app-setting :title="$t('app.setting.label.default_toolhead_move_length')">
+      <app-setting :title="$t('app.setting.label.toolhead_control_style')">
         <v-select
-          :value="defaultToolheadMoveLength"
-          :items="toolheadMoveDistances"
-          :rules="[rules.numRequired]"
+          v-model="toolheadControlStyle"
           filled
           dense
-          single-line
-          hide-details
-          suffix="mm"
-          @change="setDefaultToolheadMoveLength"
+          hide-details="auto"
+          :items="availableToolheadControlStyles"
         />
       </app-setting>
 
       <v-divider />
+
+      <template v-if="toolheadControlStyle === 'cross' || toolheadControlStyle === 'circle'">
+        <app-setting :title="$t('app.setting.label.invert_x_control')">
+          <v-switch
+            v-model="invertX"
+            hide-details
+            class="mt-0 mb-4"
+          />
+        </app-setting>
+
+        <v-divider />
+
+        <app-setting :title="$t('app.setting.label.invert_y_control')">
+          <v-switch
+            v-model="invertY"
+            hide-details
+            class="mt-0 mb-4"
+          />
+        </app-setting>
+
+        <v-divider />
+
+        <app-setting :title="$t('app.setting.label.invert_z_control')">
+          <v-switch
+            v-model="invertZ"
+            hide-details
+            class="mt-0 mb-4"
+          />
+        </app-setting>
+
+        <v-divider />
+      </template>
+
+      <template v-if="toolheadControlStyle === 'cross'">
+        <app-setting :title="$t('app.setting.label.toolhead_move_distances')">
+          <v-combobox
+            ref="toolheadMoveDistances"
+            v-model="toolheadMoveDistances"
+            filled
+            dense
+            hide-selected
+            hide-details="auto"
+            suffix="mm"
+            multiple
+            small-chips
+            append-icon=""
+            deletable-chips
+            :rules="[
+              $rules.lengthGreaterThanOrEqual(1),
+              $rules.lengthLessThanOrEqual(6),
+              $rules.numberArrayValid
+            ]"
+          />
+        </app-setting>
+
+        <v-divider />
+
+        <app-setting :title="$t('app.setting.label.default_toolhead_move_length')">
+          <v-select
+            :value="defaultToolheadMoveLength"
+            :items="toolheadMoveDistances"
+            :rules="[
+              $rules.required,
+              $rules.numberValid
+            ]"
+            filled
+            dense
+            single-line
+            hide-details="auto"
+            suffix="mm"
+            @change="setDefaultToolheadMoveLength"
+          />
+        </app-setting>
+
+        <v-divider />
+      </template>
+
+      <template v-else-if="toolheadControlStyle === 'bars'">
+        <app-setting :title="$t('app.setting.label.toolhead_xy_move_distances')">
+          <v-combobox
+            ref="toolheadXYMoveDistances"
+            v-model="toolheadXYMoveDistances"
+            filled
+            dense
+            hide-selected
+            hide-details="auto"
+            suffix="mm"
+            multiple
+            small-chips
+            append-icon=""
+            deletable-chips
+            :rules="[
+              $rules.lengthGreaterThanOrEqual(1),
+              $rules.lengthLessThanOrEqual(3),
+              $rules.numberArrayValid
+            ]"
+          />
+        </app-setting>
+
+        <v-divider />
+
+        <app-setting :title="$t('app.setting.label.toolhead_z_move_distances')">
+          <v-combobox
+            ref="toolheadZMoveDistances"
+            v-model="toolheadZMoveDistances"
+            filled
+            dense
+            hide-selected
+            hide-details="auto"
+            suffix="mm"
+            multiple
+            small-chips
+            append-icon=""
+            deletable-chips
+            :rules="[
+              $rules.lengthGreaterThanOrEqual(1),
+              $rules.lengthLessThanOrEqual(3),
+              $rules.numberArrayValid
+            ]"
+          />
+        </app-setting>
+
+        <v-divider />
+      </template>
+
+      <template v-else-if="toolheadControlStyle === 'circle'">
+        <app-setting :title="$t('app.setting.label.toolhead_xy_move_distances')">
+          <v-combobox
+            ref="toolheadCircleXYMoveDistances"
+            v-model="toolheadCircleXYMoveDistances"
+            filled
+            dense
+            hide-selected
+            hide-details="auto"
+            suffix="mm"
+            multiple
+            small-chips
+            append-icon=""
+            deletable-chips
+            :rules="[
+              $rules.lengthGreaterThanOrEqual(4),
+              $rules.lengthLessThanOrEqual(4),
+              $rules.numberArrayValid
+            ]"
+          />
+        </app-setting>
+
+        <v-divider />
+
+        <app-setting :title="$t('app.setting.label.toolhead_z_move_distances')">
+          <v-combobox
+            ref="toolheadCircleZMoveDistances"
+            v-model="toolheadCircleZMoveDistances"
+            filled
+            dense
+            hide-selected
+            hide-details="auto"
+            suffix="mm"
+            multiple
+            small-chips
+            append-icon=""
+            deletable-chips
+            :rules="[
+              $rules.lengthGreaterThanOrEqual(4),
+              $rules.lengthLessThanOrEqual(4),
+              $rules.numberArrayValid
+            ]"
+          />
+        </app-setting>
+
+        <v-divider />
+
+        <app-setting :title="$t('app.setting.label.enable_xy_homing')">
+          <v-switch
+            v-model="toolheadCircleXYHomingEnabled"
+            hide-details
+            class="mt-0 mb-4"
+          />
+        </app-setting>
+
+        <v-divider />
+      </template>
 
       <app-setting :title="$t('app.setting.label.default_toolhead_xy_speed')">
         <v-text-field
           :value="defaultToolheadXYSpeed"
-          :rules="[rules.numRequired, rules.numMin]"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(1)
+          ]"
           filled
           dense
           single-line
-          hide-details
+          hide-details="auto"
           suffix="mm/s"
           @change="setDefaultToolheadYXSpeed"
         />
@@ -116,31 +238,17 @@
       <app-setting :title="$t('app.setting.label.default_toolhead_z_speed')">
         <v-text-field
           :value="defaultToolheadZSpeed"
-          :rules="[rules.numRequired, rules.numMin]"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(1)
+          ]"
           filled
           dense
           single-line
-          hide-details
+          hide-details="auto"
           suffix="mm/s"
           @change="setDefaultToolheadZSpeed"
-        />
-      </app-setting>
-
-      <v-divider />
-
-      <app-setting :title="$t('app.setting.label.toolhead_move_distances')">
-        <v-combobox
-          ref="toolheadMoveDistances"
-          v-model="toolheadMoveDistances"
-          filled
-          dense
-          hide-selected
-          hide-details="auto"
-          multiple
-          small-chips
-          append-icon=""
-          deletable-chips
-          :rules="[rules.arrayNumMin(1), rules.arrayNumMax(6), rules.arrayOnlyNumbers]"
         />
       </app-setting>
 
@@ -154,15 +262,109 @@
           dense
           hide-selected
           hide-details="auto"
+          suffix="mm"
           multiple
           small-chips
           append-icon=""
           deletable-chips
-          :rules="[rules.arrayNumMin(1), rules.arrayNumMax(4), rules.arrayOnlyNumbers]"
+          :rules="[
+            $rules.lengthGreaterThanOrEqual(1),
+            $rules.lengthLessThanOrEqual(4),
+            $rules.numberArrayValid
+          ]"
         />
       </app-setting>
 
       <v-divider />
+
+      <app-setting :title="$t('app.setting.label.default_extrude_length')">
+        <v-text-field
+          :value="defaultExtrudeLength"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(1)
+          ]"
+          filled
+          dense
+          single-line
+          hide-details="auto"
+          suffix="mm"
+          @change="setDefaultExtrudeLength"
+        />
+      </app-setting>
+
+      <v-divider />
+
+      <app-setting :title="$t('app.setting.label.default_extrude_speed')">
+        <v-text-field
+          :value="defaultExtrudeSpeed"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(1)
+          ]"
+          filled
+          dense
+          single-line
+          hide-details="auto"
+          suffix="mm/s"
+          @change="setDefaultExtrudeSpeed"
+        />
+      </app-setting>
+
+      <v-divider />
+
+      <app-setting
+        :title="$t('app.setting.label.show_manual_probe_dialog_automatically')"
+        :sub-title="$t('app.setting.tooltip.show_manual_probe_dialog_automatically')"
+      >
+        <v-switch
+          v-model="showManualProbeDialogAutomatically"
+          hide-details
+          class="mt-0 mb-4"
+        />
+      </app-setting>
+
+      <v-divider />
+
+      <app-setting
+        :title="$t('app.setting.label.show_bed_screws_adjust_dialog_automatically')"
+        :sub-title="$t('app.setting.tooltip.show_bed_screws_adjust_dialog_automatically')"
+      >
+        <v-switch
+          v-model="showBedScrewsAdjustDialogAutomatically"
+          hide-details
+          class="mt-0 mb-4"
+        />
+      </app-setting>
+
+      <v-divider />
+
+      <app-setting
+        :title="$t('app.setting.label.show_screws_tilt_adjust_dialog_automatically')"
+        :sub-title="$t('app.setting.tooltip.show_screws_tilt_adjust_dialog_automatically')"
+      >
+        <v-switch
+          v-model="showScrewsTiltAdjustDialogAutomatically"
+          hide-details
+          class="mt-0 mb-4"
+        />
+      </app-setting>
+
+      <v-divider />
+
+      <template v-if="printerSupportsForceMove">
+        <app-setting :title="$t('app.setting.label.force_move_toggle_warning')">
+          <v-switch
+            v-model="forceMoveToggleWarning"
+            hide-details
+            class="mt-0 mb-4"
+          />
+        </app-setting>
+
+        <v-divider />
+      </template>
 
       <app-setting :title="$t('app.setting.label.reset')">
         <app-btn
@@ -179,26 +381,35 @@
 </template>
 
 <script lang="ts">
-import { Component, Ref, Vue } from 'vue-property-decorator'
-import { defaultState } from '@/store/config/index'
+import { Component, Ref, Mixins } from 'vue-property-decorator'
+import { defaultState } from '@/store/config/state'
+import type { VInput } from '@/types'
+import ToolheadMixin from '@/mixins/toolhead'
+import type { ToolheadControlStyle } from '@/store/config/types'
 
 @Component({
   components: {}
 })
-export default class ToolHeadSettings extends Vue {
-  @Ref('toolheadMoveDistances') readonly toolheadMoveDistancesElement!: any;
+export default class ToolHeadSettings extends Mixins(ToolheadMixin) {
+  @Ref('toolheadMoveDistances')
+  readonly toolheadMoveDistancesElement!: VInput
 
-  @Ref('zAdjustValues') readonly zAdjustValuesElement!: any;
+  @Ref('toolheadXYMoveDistances')
+  readonly toolheadXYMoveDistancesElement!: VInput
 
-  rules = {
-    numRequired: (v: number | string) => v !== '' || this.$t('app.general.simple_form.error.required'),
-    numMin: (v: number) => v >= 1 || this.$t('app.general.simple_form.error.min', { min: 1 }),
-    arrayNumMin: (min: number) => (v: any[]) => v.length >= min || this.$t('app.general.simple_form.error.min', { min }),
-    arrayNumMax: (max: number) => (v: any[]) => v.length <= max || this.$t('app.general.simple_form.error.max', { max }),
-    arrayOnlyNumbers: (v: any[]) => !v.some(isNaN) || this.$t('app.general.simple_form.error.arrayofnums')
-  }
+  @Ref('toolheadZMoveDistances')
+  readonly toolheadZMoveDistancesElement!: VInput
 
-  get defaultExtrudeSpeed () {
+  @Ref('toolheadCircleXYMoveDistances')
+  readonly toolheadCircleXYMoveDistancesElement!: VInput
+
+  @Ref('toolheadCircleZMoveDistances')
+  readonly toolheadCircleZMoveDistancesElement!: VInput
+
+  @Ref('zAdjustValues')
+  readonly zAdjustValuesElement!: VInput
+
+  get defaultExtrudeSpeed (): number {
     return this.$store.state.config.uiSettings.general.defaultExtrudeSpeed
   }
 
@@ -210,7 +421,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get defaultExtrudeLength () {
+  get defaultExtrudeLength (): number {
     return this.$store.state.config.uiSettings.general.defaultExtrudeLength
   }
 
@@ -222,7 +433,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get defaultToolheadMoveLength () {
+  get defaultToolheadMoveLength (): number {
     return this.$store.state.config.uiSettings.general.defaultToolheadMoveLength
   }
 
@@ -234,7 +445,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get defaultToolheadXYSpeed () {
+  get defaultToolheadXYSpeed (): number {
     return this.$store.state.config.uiSettings.general.defaultToolheadXYSpeed
   }
 
@@ -246,7 +457,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get defaultToolheadZSpeed () {
+  get defaultToolheadZSpeed (): number {
     return this.$store.state.config.uiSettings.general.defaultToolheadZSpeed
   }
 
@@ -258,7 +469,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get zAdjustValues () {
+  get zAdjustValues (): number[] {
     return this.$store.state.config.uiSettings.general.zAdjustDistances
   }
 
@@ -274,7 +485,48 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get toolheadMoveDistances () {
+  get toolheadCircleXYHomingEnabled (): boolean {
+    return this.$store.state.config.uiSettings.general.toolheadCircleXYHomingEnabled
+  }
+
+  set toolheadCircleXYHomingEnabled (value: boolean) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.toolheadCircleXYHomingEnabled',
+      value,
+      server: true
+    })
+  }
+
+  get toolheadControlStyle (): ToolheadControlStyle {
+    return this.$store.state.config.uiSettings.general.toolheadControlStyle
+  }
+
+  set toolheadControlStyle (value: ToolheadControlStyle) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.toolheadControlStyle',
+      value,
+      server: true
+    })
+  }
+
+  get availableToolheadControlStyles () {
+    return [
+      {
+        value: 'cross',
+        text: this.$t('app.general.label.cross')
+      },
+      {
+        value: 'bars',
+        text: this.$t('app.general.label.bars')
+      },
+      {
+        value: 'circle',
+        text: this.$t('app.general.label.circle')
+      }
+    ]
+  }
+
+  get toolheadMoveDistances (): number[] {
     return this.$store.state.config.uiSettings.general.toolheadMoveDistances
   }
 
@@ -283,14 +535,85 @@ export default class ToolHeadSettings extends Vue {
       return
     }
 
+    const toolheadMoveDistances = [...new Set(value.map(Number))]
+      .sort((a, b) => a - b)
+
     this.$store.dispatch('config/saveByPath', {
       path: 'uiSettings.general.toolheadMoveDistances',
+      value: toolheadMoveDistances,
+      server: true
+    })
+
+    if (toolheadMoveDistances.includes(this.defaultToolheadMoveLength) === false) {
+      this.setDefaultToolheadMoveLength(toolheadMoveDistances[0])
+    }
+  }
+
+  get toolheadXYMoveDistances (): number[] {
+    return this.$store.state.config.uiSettings.general.toolheadXYMoveDistances
+  }
+
+  set toolheadXYMoveDistances (value: (number | string)[]) {
+    if (!this.toolheadXYMoveDistancesElement.validate(true)) {
+      return
+    }
+
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.toolheadXYMoveDistances',
       value: [...new Set(value.map(Number))].sort((a, b) => a - b),
       server: true
     })
   }
 
-  get useGcodeCoords () {
+  get toolheadCircleXYMoveDistances (): number[] {
+    return this.$store.state.config.uiSettings.general.toolheadCircleXYMoveDistances
+  }
+
+  set toolheadCircleXYMoveDistances (value: (number | string)[]) {
+    if (!this.toolheadCircleXYMoveDistancesElement.validate(true)) {
+      return
+    }
+
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.toolheadCircleXYMoveDistances',
+      value: [...new Set(value.map(Number))].sort((a, b) => a - b),
+      server: true
+    })
+  }
+
+  get toolheadZMoveDistances (): number[] {
+    return this.$store.state.config.uiSettings.general.toolheadZMoveDistances
+  }
+
+  set toolheadZMoveDistances (value: (number | string)[]) {
+    if (!this.toolheadZMoveDistancesElement.validate(true)) {
+      return
+    }
+
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.toolheadZMoveDistances',
+      value: [...new Set(value.map(Number))].sort((a, b) => a - b),
+      server: true
+    })
+  }
+
+  get toolheadCircleZMoveDistances (): number[] {
+    return this.$store.state.config.uiSettings.general.toolheadCircleZMoveDistances
+  }
+
+  set toolheadCircleZMoveDistances (value: (number | string)[]) {
+    if (!this.toolheadCircleZMoveDistancesElement.validate(true)) {
+      return
+    }
+
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.toolheadCircleZMoveDistances',
+      value: [...new Set(value.map(Number))].sort((a, b) => a - b),
+      server: true
+    })
+  }
+
+  get useGcodeCoords (): boolean {
     return this.$store.state.config.uiSettings.general.useGcodeCoords
   }
 
@@ -302,7 +625,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get invertX () {
+  get invertX (): boolean {
     return this.$store.state.config.uiSettings.general.axis.x.inverted
   }
 
@@ -314,7 +637,7 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get invertY () {
+  get invertY (): boolean {
     return this.$store.state.config.uiSettings.general.axis.y.inverted
   }
 
@@ -326,13 +649,65 @@ export default class ToolHeadSettings extends Vue {
     })
   }
 
-  get invertZ () {
+  get invertZ (): boolean {
     return this.$store.state.config.uiSettings.general.axis.z.inverted
   }
 
   set invertZ (value: boolean) {
     this.$store.dispatch('config/saveByPath', {
       path: 'uiSettings.general.axis.z.inverted',
+      value,
+      server: true
+    })
+  }
+
+  get printerSupportsForceMove (): boolean {
+    return this.$store.getters['printer/getPrinterSettings']('force_move.enable_force_move') ?? false
+  }
+
+  get showManualProbeDialogAutomatically (): boolean {
+    return this.$store.state.config.uiSettings.general.showManualProbeDialogAutomatically
+  }
+
+  set showManualProbeDialogAutomatically (value: boolean) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.showManualProbeDialogAutomatically',
+      value,
+      server: true
+    })
+  }
+
+  get showBedScrewsAdjustDialogAutomatically (): boolean {
+    return this.$store.state.config.uiSettings.general.showBedScrewsAdjustDialogAutomatically
+  }
+
+  set showBedScrewsAdjustDialogAutomatically (value: boolean) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.showBedScrewsAdjustDialogAutomatically',
+      value,
+      server: true
+    })
+  }
+
+  get showScrewsTiltAdjustDialogAutomatically (): boolean {
+    return this.$store.state.config.uiSettings.general.showScrewsTiltAdjustDialogAutomatically
+  }
+
+  set showScrewsTiltAdjustDialogAutomatically (value: boolean) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.showScrewsTiltAdjustDialogAutomatically',
+      value,
+      server: true
+    })
+  }
+
+  get forceMoveToggleWarning (): boolean {
+    return this.$store.state.config.uiSettings.general.forceMoveToggleWarning
+  }
+
+  set forceMoveToggleWarning (value: boolean) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.forceMoveToggleWarning',
       value,
       server: true
     })

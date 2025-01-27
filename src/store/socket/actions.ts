@@ -1,12 +1,13 @@
 import Vue from 'vue'
-import { ActionTree } from 'vuex'
-import consola from 'consola'
-import { SocketState } from './types'
-import { RootState } from '../types'
+import type { ActionTree } from 'vuex'
+import { consola } from 'consola'
+import type { SocketState } from './types'
+import type { RootState } from '../types'
 import { Globals } from '@/globals'
 import { SocketActions } from '@/api/socketActions'
-import { EventBus, FlashMessageTypes } from '@/eventBus'
+import { EventBus } from '@/eventBus'
 import { upperFirst, camelCase } from 'lodash-es'
+import isKeyOf from '@/util/is-key-of'
 
 let retryTimeout: number
 
@@ -31,25 +32,34 @@ export const actions: ActionTree<SocketState, RootState> = {
     commit('setSocketOpen', payload)
     if (payload === true) {
       SocketActions.serverInfo()
-      SocketActions.identify()
+      SocketActions.identify({
+        client_name: Globals.APP_NAME,
+        version: `${import.meta.env.VERSION || '0.0.0'}-${import.meta.env.HASH || 'unknown'}`.trim(),
+        type: 'web',
+        url: Globals.GITHUB_REPO
+      })
+      SocketActions.serverFilesListRoot('config')
     }
   },
 
   /**
    * Fired when the socket closes.
    */
-  async onSocketClose ({ dispatch, commit, state }, e: CloseEvent) {
+  async onSocketClose ({ dispatch, commit, state }, event: CloseEvent) {
     const retry = state.disconnecting
-    const modules = ['server', 'charts', 'socket', 'wait']
+    const modules = ['server', 'power', 'webcams', 'jobQueue', 'socket', 'wait', 'gcodePreview']
 
-    if (e.wasClean && retry) {
+    if (event.wasClean && retry) {
       // This is most likely a moonraker restart, so only partially reset.
-      await dispatch('reset', modules, { root: true })
+      await Promise.all([
+        dispatch('charts/resetChartStore', undefined, { root: true }),
+        dispatch('reset', modules, { root: true })
+      ])
       commit('setSocketConnecting', true)
       Vue.$socket.connect()
     }
 
-    if (e.wasClean && !retry) {
+    if (event.wasClean && !retry) {
       // Set the socket state to closed.
       // If we swap printer endpoints, then the init will run
       // which will reset the state if necessary.
@@ -57,10 +67,13 @@ export const actions: ActionTree<SocketState, RootState> = {
       commit('setSocketOpen', false)
     }
 
-    if (!e.wasClean) {
+    if (!event.wasClean) {
       // Not a clean disconnect. Service went down?
       // Socket should attempt to reconnect itself.
-      await dispatch('reset', modules, { root: true })
+      await Promise.all([
+        dispatch('charts/resetChartStore', undefined, { root: true }),
+        dispatch('reset', modules, { root: true })
+      ])
       commit('setSocketConnecting', true)
       commit('setSocketOpen', false)
     }
@@ -89,11 +102,11 @@ export const actions: ActionTree<SocketState, RootState> = {
       let message = ''
       try {
         message = JSON.parse(payload.message.replace(/'/g, '"')).message
-      } catch (e) {
+      } catch {
         message = payload.message
       }
 
-      EventBus.$emit(message, { type: FlashMessageTypes.error })
+      EventBus.$emit(message, { type: 'error' })
     }
     if (payload.code === 503) {
       // This indicates klippy is non-responsive, or there's a configuration error
@@ -117,6 +130,18 @@ export const actions: ActionTree<SocketState, RootState> = {
     commit('setConnectionId', connection_id)
   },
 
+  async onServerRead ({ dispatch }, payload: { namespace: string, key?: string, value: unknown }) {
+    const { namespace, key, value } = payload
+
+    if (isKeyOf(namespace, Globals.MOONRAKER_DB)) {
+      const roots = Globals.MOONRAKER_DB[namespace].ROOTS
+
+      const root = key && isKeyOf(key, roots) ? roots[key] : Object.values(roots)[0]
+
+      dispatch(root.dispatch, value, { root: true })
+    }
+  },
+
   /**
    * ==========================================================================
    * Automated notifications via socket
@@ -126,10 +151,9 @@ export const actions: ActionTree<SocketState, RootState> = {
    */
 
   async notifyStatusUpdate ({ state, commit, dispatch }, payload) {
-    dispatch('printer/onNotifyStatusUpdate', payload, { root: true })
-      .then(() => {
-        if (!state.ready) commit('setSocketReadyState', true)
-      })
+    await dispatch('printer/onNotifyStatusUpdate', payload, { root: true })
+
+    if (!state.ready) commit('setSocketReadyState', true)
   },
 
   async notifyGcodeResponse ({ dispatch }, payload) {
@@ -139,7 +163,9 @@ export const actions: ActionTree<SocketState, RootState> = {
   /**
    * This is fired when, for example - the service is stopped.
    */
-  async notifyKlippyDisconnected () {
+  async notifyKlippyDisconnected ({ dispatch }) {
+    await dispatch('resetKlippy', undefined, { root: true })
+
     SocketActions.serverInfo()
   },
 
@@ -213,5 +239,25 @@ export const actions: ActionTree<SocketState, RootState> = {
 
   async notifyAnnouncementWake ({ dispatch }, payload) {
     dispatch('announcements/onAnnouncementWake', payload, { root: true })
+  },
+
+  async notifyWebcamsChanged ({ dispatch }, payload) {
+    dispatch('webcams/onWebcamsChanged', payload, { root: true })
+  },
+
+  async notifySensorUpdate ({ dispatch }, payload) {
+    dispatch('sensors/onSensorUpdate', payload, { root: true })
+  },
+
+  async notifyJobQueueChanged ({ dispatch }, payload) {
+    dispatch('jobQueue/onJobQueueChanged', payload, { root: true })
+  },
+
+  async notifyActiveSpoolSet ({ dispatch }, payload) {
+    dispatch('spoolman/onActiveSpool', payload, { root: true })
+  },
+
+  async notifySpoolmanStatusChanged ({ dispatch }, payload) {
+    dispatch('spoolman/onStatusChanged', payload.spoolman_connected, { root: true })
   }
 }

@@ -1,7 +1,7 @@
 import Vue from 'vue'
-import { MutationTree } from 'vuex'
-import { ChartData, ChartState } from './types'
-import { defaultState } from './'
+import type { MutationTree } from 'vuex'
+import type { ChartData, ChartState } from './types'
+import { defaultState } from './state'
 
 export const mutations: MutationTree<ChartState> = {
   /**
@@ -15,6 +15,15 @@ export const mutations: MutationTree<ChartState> = {
     })
 
     Object.assign(state, defaultState())
+  },
+
+  setResetChartStore (state) {
+    const { chart, ready } = defaultState()
+
+    Object.assign(state, {
+      chart,
+      ready
+    })
   },
 
   /**
@@ -39,13 +48,10 @@ export const mutations: MutationTree<ChartState> = {
     // Dont keep data older than our set retention
     if (!state[payload.type]) {
       Vue.set(state, payload.type, [])
-      // console.log('created new array', payload.type)
     }
     state[payload.type].push(payload.data)
-    // console.log('set data', payload.type, payload.data)
-    while (state[payload.type].length > payload.retention) {
-      state[payload.type].splice(0, 1)
-    }
+    const firstInRange = state[payload.type].findIndex((entry: ChartData) => (Date.now() - entry.date.valueOf()) / 1000 < payload.retention)
+    if (firstInRange > 0) state[payload.type].splice(0, firstInRange)
   },
 
   setSelectedLegends (state, payload) {

@@ -10,60 +10,73 @@
 
     <v-spacer />
 
+    <v-tooltip
+      v-if="root === 'gcodes'"
+      bottom
+    >
+      <template #activator="{ on, attrs }">
+        <app-btn
+          v-bind="attrs"
+          icon
+          text
+          v-on="on"
+          @click="$emit('enqueue')"
+        >
+          <v-icon>
+            $enqueueJob
+          </v-icon>
+        </app-btn>
+      </template>
+      <span>{{ $t('app.general.btn.add_to_queue') }}</span>
+    </v-tooltip>
+
     <v-tooltip bottom>
       <template #activator="{ on, attrs }">
-        <v-btn
-          fab
-          small
-          text
+        <app-btn
           v-bind="attrs"
+          icon
+          text
+          v-on="on"
+          @click="$emit('create-zip')"
+        >
+          <v-icon>
+            $fileZipAdd
+          </v-icon>
+        </app-btn>
+      </template>
+      <span>{{ $t('app.general.btn.create_zip_archive') }}</span>
+    </v-tooltip>
+
+    <v-tooltip bottom>
+      <template #activator="{ on, attrs }">
+        <app-btn
+          v-bind="attrs"
+          icon
+          text
           v-on="on"
           @click="$emit('remove')"
         >
           <v-icon>
             $delete
           </v-icon>
-        </v-btn>
+        </app-btn>
       </template>
-      <slot>
-        <span>Delete</span>
-      </slot>
+      <span>{{ $t('app.general.btn.delete') }}</span>
     </v-tooltip>
-
-    <!-- <v-tooltip bottom>
-      <template v-slot:activator="{ on, attrs }">
-        <v-btn
-          fab small text
-          v-bind="attrs"
-          v-on="on"
-        >
-          <v-icon>
-            $move
-          </v-icon>
-        </v-btn>
-      </template>
-      <slot>
-        <span>Move to</span>
-      </slot>
-    </v-tooltip> -->
   </v-toolbar>
 </template>
 
 <script lang="ts">
 import { Component, Mixins, Prop } from 'vue-property-decorator'
 import StatesMixin from '@/mixins/state'
-import FileSystemMenu from './FileSystemMenu.vue'
-import FileSystemFilterMenu from './FileSystemFilterMenu.vue'
 
-@Component({
-  components: {
-    FileSystemMenu,
-    FileSystemFilterMenu
-  }
-})
+@Component({})
 export default class FileSystemBulkActions extends Mixins(StatesMixin) {
+  @Prop({ type: String, required: true })
+  readonly root!: string
+
   // The current path
-  @Prop({ type: String, required: false })
-  path!: string;
+  @Prop({ type: String })
+  readonly path!: string
 }
 </script>

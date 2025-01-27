@@ -1,89 +1,116 @@
 import Vue from 'vue'
-import VueRouter, { NavigationGuardNext, Route, RouteConfig } from 'vue-router'
+import VueRouter, { type RouteConfig } from 'vue-router'
 
 // Views
 import Dashboard from '@/views/Dashboard.vue'
 import Console from '@/views/Console.vue'
+import GcodePreview from '@/views/GcodePreview.vue'
 import Jobs from '@/views/Jobs.vue'
 import Tune from '@/views/Tune.vue'
+import Diagnostics from '@/views/Diagnostics.vue'
 import History from '@/views/History.vue'
 import Timelapse from '@/views/Timelapse.vue'
 import Configure from '@/views/Configure.vue'
 import System from '@/views/System.vue'
 import Settings from '@/views/Settings.vue'
 import AppSettingsNav from '@/components/layout/AppSettingsNav.vue'
-import MacroSettings from '@/components/settings/macros/MacroSettings.vue'
+import MacroCategorySettings from '@/components/settings/macros/MacroCategorySettings.vue'
+import FullscreenCamera from '@/views/FullscreenCamera.vue'
 import NotFound from '@/views/NotFound.vue'
 import Login from '@/views/Login.vue'
 import Icons from '@/views/Icons.vue'
-import store from '@/store'
 
 Vue.use(VueRouter)
 
-const ifAuthenticated = (to: Route, from: Route, next: NavigationGuardNext<Vue>) => {
-  if (
-    store.getters['auth/getAuthenticated'] ||
-    !store.state.socket?.apiConnected
-  ) {
-    next()
-    return
+const isAuthenticated = () => (
+  router.app.$store.getters['auth/getAuthenticated'] ||
+  !router.app.$store.state.socket.apiConnected
+)
+
+const defaultRouteConfig: Partial<RouteConfig> = {
+  beforeEnter: (to, from, next) => {
+    if (isAuthenticated()) {
+      next()
+    } else {
+      next({ name: 'login' })
+    }
+  },
+  meta: {
+    fileDropRoot: 'gcodes'
   }
-  next('/login')
 }
 
 const routes: Array<RouteConfig> = [
   {
     path: '/',
-    name: 'Dashboard',
+    name: 'home',
     component: Dashboard,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig,
+    meta: {
+      ...defaultRouteConfig.meta,
+      dashboard: true
+    }
   },
   {
     path: '/console',
-    name: 'Console',
+    name: 'console',
     component: Console,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig
   },
   {
     path: '/jobs',
-    name: 'Jobs',
+    name: 'jobs',
     component: Jobs,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig
   },
   {
     path: '/tune',
-    name: 'Tune',
+    name: 'tune',
     component: Tune,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig
+  },
+  {
+    path: '/diagnostics',
+    name: 'diagnostics',
+    component: Diagnostics,
+    ...defaultRouteConfig,
+    meta: {
+      ...defaultRouteConfig.meta,
+      dashboard: true
+    }
   },
   {
     path: '/timelapse',
-    name: 'Timelapse',
+    name: 'timelapse',
     component: Timelapse,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig,
+    meta: {
+      fileDropRoot: 'timelapse'
+    }
   },
   {
     path: '/history',
-    name: 'History',
+    name: 'history',
     component: History,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig
   },
   {
     path: '/system',
-    name: 'System',
+    name: 'system',
     component: System,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig
   },
   {
     path: '/configure',
-    name: 'Configuration',
+    name: 'configure',
     component: Configure,
-    beforeEnter: ifAuthenticated
+    ...defaultRouteConfig,
+    meta: {}
   },
   {
     path: '/settings',
-    name: 'Settings',
-    beforeEnter: ifAuthenticated,
+    name: 'settings',
+    ...defaultRouteConfig,
     meta: {
       hasSubNavigation: true
     },
@@ -93,40 +120,59 @@ const routes: Array<RouteConfig> = [
     },
     children: [
       {
-        path: '/settings/macros/:categoryId',
-        name: 'Macros',
+        path: 'macros/:categoryId',
+        name: 'macro_category_settings',
         meta: {
           hasSubNavigation: true
         },
         components: {
-          default: MacroSettings,
+          default: MacroCategorySettings,
           navigation: AppSettingsNav
         }
       }
     ]
   },
   {
+    path: '/camera/:cameraId',
+    name: 'camera',
+    component: FullscreenCamera,
+    ...defaultRouteConfig
+  },
+  {
+    path: '/preview',
+    name: 'gcode_preview',
+    component: GcodePreview,
+    ...defaultRouteConfig
+  },
+  {
     path: '/login',
-    name: 'Login',
+    name: 'login',
     component: Login,
+    beforeEnter: (to, from, next) => {
+      if (isAuthenticated()) {
+        next({ name: 'home' })
+      } else {
+        next()
+      }
+    },
     meta: {
       fillHeight: true
     }
   },
   {
     path: '/icons',
-    name: 'Icons',
+    name: 'icons',
     component: Icons
   },
   {
     path: '*',
-    name: '404',
+    name: 'not_found',
     component: NotFound
   }
 ]
 
 const router = new VueRouter({
-  base: process.env.BASE_URL,
+  base: import.meta.env.BASE_URL,
   routes,
   scrollBehavior: (to, from, savedPosition) => {
     if (savedPosition) return savedPosition
@@ -140,5 +186,19 @@ const router = new VueRouter({
     return { x: 0, y: 0 }
   }
 })
+
+router.beforeEach((to, from, next) => {
+  router.app?.$store.commit('config/setContainerColumnCount', 2)
+  router.app?.$store.commit('config/setLayoutMode', false)
+  next()
+})
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    fillHeight?: boolean
+    hasSubNavigation?: boolean
+    fileDropRoot?: string
+  }
+}
 
 export default router

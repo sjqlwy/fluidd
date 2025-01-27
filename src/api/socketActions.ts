@@ -1,23 +1,16 @@
 import Vue from 'vue'
 import { Globals, Waits } from '@/globals'
-import store from '../store'
-import { NotifyOptions } from '@/plugins/socketClient'
-import consola from 'consola'
-import { TimelapseWritableSettings } from '@/store/timelapse/types'
+import type { NotifyOptions } from '@/plugins/socketClient'
+import { consola } from 'consola'
+import type { TimelapseWritableSettings } from '@/store/timelapse/types'
+import type { WebcamConfig } from '@/store/webcams/types'
 
 const baseEmit = (method: string, options: NotifyOptions) => {
   if (!Vue.$socket) {
     consola.warn('Socket emit denied, socket not ready.', method, options)
     return
   }
-  if (
-    !store.state.socket?.disconnecting &&
-    !store.state.socket?.connecting
-  ) {
-    Vue.$socket.emit(method, options)
-  } else {
-    consola.debug('Socket emit denied, in disonnecting state:', method, options)
-  }
+  Vue.$socket.emit(method, options)
 }
 
 export const SocketActions = {
@@ -71,19 +64,31 @@ export const SocketActions = {
   },
 
   async machineUpdateStatus (refresh = false) {
-    store.dispatch('version/refreshing', true)
     baseEmit(
       'machine.update.status', {
         dispatch: 'version/onUpdateStatus',
-        params: { refresh }
+        params: { refresh },
+        wait: Waits.onVersionRefresh
+      }
+    )
+  },
+
+  async machineUpdateRefresh (name?: string) {
+    baseEmit(
+      'machine.update.refresh', {
+        dispatch: 'version/onUpdateStatus',
+        params: { name },
+        wait: Waits.onVersionRefresh
       }
     )
   },
 
   async machineUpdateRecover (name: string, hard = false) {
-    let dispatch = 'version/onUpdatedClient'
-    if (name === 'moonraker') dispatch = 'version/onUpdatedMoonraker'
-    if (name === 'klipper') dispatch = 'version/onUpdatedKlipper'
+    const dispatch = name === 'moonraker'
+      ? 'version/onUpdatedMoonraker'
+      : name === 'klipper'
+        ? 'version/onUpdatedKlipper'
+        : 'version/onUpdatedClient'
     baseEmit(
       'machine.update.recover', {
         dispatch,
@@ -112,8 +117,9 @@ export const SocketActions = {
   },
 
   async machineUpdateClient (name: string) {
-    let dispatch = 'version/onUpdatedClient'
-    if (name === 'fluidd') dispatch = 'version/onUpdatedFluidd'
+    const dispatch = name === 'fluidd'
+      ? 'version/onUpdatedFluidd'
+      : 'version/onUpdatedClient'
     baseEmit(
       'machine.update.client', {
         dispatch,
@@ -126,6 +132,14 @@ export const SocketActions = {
     baseEmit(
       'machine.update.system', {
         dispatch: 'version/onUpdatedSystem'
+      }
+    )
+  },
+
+  async machineUpdateAll () {
+    baseEmit(
+      'machine.update.full', {
+        dispatch: 'version/onUpdatedAll'
       }
     )
   },
@@ -163,14 +177,54 @@ export const SocketActions = {
     )
   },
 
-  async machineDevicePowerToggle (device: string, state: string, wait?: string) {
-    const emit = (state === 'on')
-      ? 'machine.device_power.on'
-      : 'machine.device_power.off'
+  async machineDevicePowerSetDevice (device: string, action: 'on' | 'off' | 'toggle', wait?: string) {
     baseEmit(
-      emit, {
-        dispatch: 'power/onToggle',
-        params: { [device]: null },
+      'machine.device_power.post_device', {
+        dispatch: 'power/onStatus',
+        params: {
+          device,
+          action
+        },
+        wait
+      }
+    )
+  },
+
+  async machinePeripheralsUsb () {
+    baseEmit(
+      'machine.peripherals.usb', {
+        dispatch: 'server/onMachinePeripherals',
+        wait: Waits.onMachinePeripheralsUsb
+      }
+    )
+  },
+
+  async machinePeripheralsSerial () {
+    baseEmit(
+      'machine.peripherals.serial', {
+        dispatch: 'server/onMachinePeripherals',
+        wait: Waits.onMachinePeripheralsSerial
+      }
+    )
+  },
+
+  async machinePeripheralsVideo () {
+    baseEmit(
+      'machine.peripherals.video', {
+        dispatch: 'server/onMachinePeripherals',
+        wait: Waits.onMachinePeripheralsVideo
+      }
+    )
+  },
+
+  async machinePeripheralsCanbus (canbusInterface: string) {
+    const wait = `${Waits.onMachinePeripheralsCanbus}/${canbusInterface}`
+    baseEmit(
+      'machine.peripherals.canbus', {
+        dispatch: 'server/onMachinePeripheralsCanbus',
+        params: {
+          interface: canbusInterface
+        },
         wait
       }
     )
@@ -227,7 +281,8 @@ export const SocketActions = {
   async printerQueryEndstops () {
     baseEmit(
       'printer.query_endstops.status', {
-        dispatch: 'printer/onQueryEndstops'
+        dispatch: 'printer/onQueryEndstops',
+        wait: Waits.onQueryEndstops
       }
     )
   },
@@ -240,7 +295,7 @@ export const SocketActions = {
     )
   },
 
-  async printerObjectsSubscribe (objects: {[key: string]: null}) {
+  async printerObjectsSubscribe (objects: { [key: string]: null }) {
     baseEmit(
       'printer.objects.subscribe', {
         dispatch: 'printer/onPrinterObjectsSubscribe',
@@ -325,15 +380,10 @@ export const SocketActions = {
     )
   },
 
-  async identify () {
+  async identify (params?: { client_name: string, version: string, type: string, url: string }) {
     baseEmit('server.connection.identify', {
       dispatch: 'socket/onConnectionId',
-      params: {
-        client_name: Globals.APP_NAME,
-        version: `${store.state.version?.fluidd.version || '0.0.0'}-${store.state.version?.fluidd.hash || 'unknown'}`.trim(),
-        type: 'web',
-        url: Globals.GITHUB_REPO
-      }
+      params
     })
   },
 
@@ -362,13 +412,36 @@ export const SocketActions = {
   /**
    * Writes data to moonraker's DB.
    */
-  async serverWrite (key: string, value: any) {
+  async serverWrite (key: string, value: unknown, namespace: string = Globals.MOONRAKER_DB.fluidd.NAMESPACE) {
     baseEmit(
       'server.database.post_item', {
         params: {
-          namespace: Globals.MOONRAKER_DB.NAMESPACE,
+          namespace,
           key,
           value
+        }
+      }
+    )
+  },
+
+  async serverDelete (key: string, namespace: string = Globals.MOONRAKER_DB.fluidd.NAMESPACE) {
+    baseEmit(
+      'server.database.delete_item', {
+        params: {
+          namespace,
+          key
+        }
+      }
+    )
+  },
+
+  async serverRead (key?: string, namespace: string = Globals.MOONRAKER_DB.fluidd.NAMESPACE) {
+    baseEmit(
+      'server.database.get_item', {
+        dispatch: 'socket/onServerRead',
+        params: {
+          namespace,
+          key
         }
       }
     )
@@ -385,7 +458,10 @@ export const SocketActions = {
   async serverTemperatureStore () {
     baseEmit(
       'server.temperature_store', {
-        dispatch: 'charts/initTempStore'
+        dispatch: 'charts/initTempStore',
+        params: {
+          include_monitors: true
+        }
       }
     )
   },
@@ -416,10 +492,12 @@ export const SocketActions = {
   },
 
   async serverHistoryDeleteJob (uid: string) {
-    let params: any = { uid }
-    if (uid === 'all') {
-      params = { all: true }
-    }
+    const params = uid === 'all'
+      ? {
+          all: true
+        }
+      : { uid }
+
     baseEmit(
       'server.history.delete_job', {
         dispatch: 'history/onDelete',
@@ -436,14 +514,77 @@ export const SocketActions = {
     )
   },
 
+  async serverJobQueueStatus () {
+    baseEmit(
+      'server.job_queue.status', {
+        dispatch: 'jobQueue/onJobQueueStatus',
+        wait: Waits.onJobQueue
+      }
+    )
+  },
+
+  async serverJobQueuePostJob (filenames: string[], reset?: boolean) {
+    baseEmit(
+      'server.job_queue.post_job', {
+        dispatch: 'jobQueue/onJobQueueStatus',
+        params: {
+          filenames,
+          reset
+        },
+        wait: Waits.onJobQueue
+      }
+    )
+  },
+
+  async serverJobQueueDeleteJobs (jobIds: string[]) {
+    const params = jobIds.length > 0 && jobIds[0] === 'all'
+      ? { all: true }
+      : { job_ids: jobIds }
+
+    baseEmit(
+      'server.job_queue.delete_job', {
+        dispatch: 'jobQueue/onJobQueueStatus',
+        params,
+        wait: Waits.onJobQueue
+      }
+    )
+  },
+
+  async serverJobQueuePause () {
+    baseEmit(
+      'server.job_queue.pause', {
+        dispatch: 'jobQueue/onJobQueueStatus',
+        wait: Waits.onJobQueue
+      }
+    )
+  },
+
+  async serverJobQueueStart () {
+    baseEmit(
+      'server.job_queue.start', {
+        dispatch: 'jobQueue/onJobQueueStatus',
+        wait: Waits.onJobQueue
+      }
+    )
+  },
+
   /**
    * Loads the metadata for a given filepath.
    * Expects the full path including root.
    * Optionally pass the just the filename and path.
    */
-  async serverFilesMetaData (filepath: string) {
+  async serverFilesMetadata (filepath: string) {
     baseEmit(
       'server.files.metadata', {
+        dispatch: 'files/onFileMetaData',
+        params: { filename: filepath }
+      }
+    )
+  },
+
+  async serverFilesMetascan (filepath: string) {
+    baseEmit(
+      'server.files.metascan', {
         dispatch: 'files/onFileMetaData',
         params: { filename: filepath }
       }
@@ -455,7 +596,7 @@ export const SocketActions = {
    * for brevity.
    */
   async serverFilesGetDirectory (root: string, path: string) {
-    const wait = `${Waits.onFileSystem}${path}`
+    const wait = `${Waits.onFileSystem}/${root}/${path}/`
     baseEmit(
       'server.files.get_directory',
       {
@@ -466,8 +607,20 @@ export const SocketActions = {
     )
   },
 
+  async serverFilesListRoot (root: string) {
+    const wait = `${Waits.onFileSystem}/${root}/`
+    baseEmit(
+      'server.files.list',
+      {
+        dispatch: 'files/onServerFilesListRoot',
+        wait,
+        params: { root }
+      }
+    )
+  },
+
   async serverFilesMove (source: string, dest: string) {
-    const wait = Waits.onFileSystem
+    const wait = `${Waits.onFileSystem}/${source}/`
     baseEmit(
       'server.files.move', {
         dispatch: 'void',
@@ -480,12 +633,41 @@ export const SocketActions = {
     )
   },
 
+  async serverFilesCopy (source: string, dest: string) {
+    const wait = `${Waits.onFileSystem}/${source}/`
+    baseEmit(
+      'server.files.copy', {
+        dispatch: 'void',
+        wait,
+        params: {
+          source,
+          dest
+        }
+      }
+    )
+  },
+
+  async serverFilesZip (dest: string, items: string[], store_only?: boolean) {
+    const wait = `${Waits.onFileSystem}/${dest}/`
+    baseEmit(
+      'server.files.zip', {
+        dispatch: 'void',
+        wait,
+        params: {
+          dest,
+          items,
+          store_only
+        }
+      }
+    )
+  },
+
   /**
    * Create a directory.
    * Root should be included in the path.
    */
   async serverFilesPostDirectory (path: string) {
-    const wait = Waits.onFileSystem
+    const wait = `${Waits.onFileSystem}/${path}/`
     baseEmit(
       'server.files.post_directory', {
         dispatch: 'void',
@@ -498,7 +680,7 @@ export const SocketActions = {
   },
 
   async serverFilesDeleteFile (path: string) {
-    const wait = Waits.onFileSystem
+    const wait = `${Waits.onFileSystem}/${path}/`
     baseEmit(
       'server.files.delete_file', {
         dispatch: 'void',
@@ -511,7 +693,7 @@ export const SocketActions = {
   },
 
   async serverFilesDeleteDirectory (path: string, force = false) {
-    const wait = Waits.onFileSystem
+    const wait = `${Waits.onFileSystem}/${path}/`
     baseEmit(
       'server.files.delete_directory', {
         dispatch: 'void',
@@ -540,6 +722,81 @@ export const SocketActions = {
           entry_id,
           wake_time
         }
+      }
+    )
+  },
+
+  async serverLogsRollover (application?: string) {
+    baseEmit(
+      'server.logs.rollover', {
+        dispatch: 'server/onLogsRollOver',
+        params: {
+          application
+        }
+      }
+    )
+  },
+
+  async serverWebcamsList () {
+    baseEmit(
+      'server.webcams.list', {
+        dispatch: 'webcams/onWebcamsList'
+      }
+    )
+  },
+
+  async serverWebcamsWrite (webcam: WebcamConfig) {
+    baseEmit(
+      'server.webcams.post_item', {
+        params: webcam
+      }
+    )
+  },
+
+  async serverWebcamsDelete (uid: string) {
+    baseEmit(
+      'server.webcams.delete_item', {
+        params: {
+          uid
+        }
+      }
+    )
+  },
+
+  async serverSensorsList () {
+    baseEmit(
+      'server.sensors.list', {
+        dispatch: 'sensors/onSensorsList'
+      }
+    )
+  },
+
+  async serverSpoolmanGetSpoolId () {
+    baseEmit(
+      'server.spoolman.get_spool_id', {
+        dispatch: 'spoolman/onActiveSpool'
+      }
+    )
+  },
+
+  async serverSpoolmanPostSpoolId (spoolId: number | undefined) {
+    baseEmit(
+      'server.spoolman.post_spool_id', {
+        params: { spool_id: spoolId },
+        dispatch: 'spoolman/onActiveSpool'
+      }
+    )
+  },
+
+  async serverSpoolmanProxyGetAvailableSpools () {
+    baseEmit(
+      'server.spoolman.proxy', {
+        params: {
+          request_method: 'GET',
+          path: '/v1/spool',
+          use_v2_response: true
+        },
+        dispatch: 'spoolman/onAvailableSpools'
       }
     )
   }

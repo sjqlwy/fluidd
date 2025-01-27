@@ -1,8 +1,8 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
-import consola from 'consola'
-import { RootState } from './types'
-import { InitConfig } from './config/types'
+import { consola } from 'consola'
+import type { RootState } from './types'
+import type { InitConfig } from './config/types'
 
 // Modules
 import { socket } from './socket'
@@ -18,19 +18,21 @@ import { macros } from './macros'
 import { power } from './power'
 import { history } from './history'
 import { version } from './version'
-import { cameras } from './cameras'
 import { mesh } from './mesh'
 import { notifications } from './notifications'
 import { announcements } from './announcements'
 import { wait } from './wait'
 import { gcodePreview } from './gcodePreview'
 import { timelapse } from './timelapse'
+import { webcams } from './webcams'
+import { jobQueue } from './jobQueue'
+import { spoolman } from './spoolman'
+import { sensors } from './sensors'
 
 Vue.use(Vuex)
 
 export default new Vuex.Store<RootState>({
-  strict: (process.env.NODE_ENV === 'development'),
-  state: {},
+  strict: (import.meta.env.DEV),
   modules: {
     socket,
     auth,
@@ -45,13 +47,16 @@ export default new Vuex.Store<RootState>({
     power,
     history,
     version,
-    cameras,
     mesh,
     notifications,
     announcements,
     wait,
     gcodePreview,
-    timelapse
+    timelapse,
+    webcams,
+    jobQueue,
+    spoolman,
+    sensors
   },
   mutations: {},
   actions: {
@@ -63,29 +68,40 @@ export default new Vuex.Store<RootState>({
       Vue.$colorset.forceResetAll()
 
       // Dispatch a reset for each registered module.
-      const p: Promise<any>[] = []
+      const p: Promise<unknown>[] = []
       const keys = payload || Object.keys(this.state)
       keys.forEach((key) => {
         if (this.hasModule(key)) {
           p.push(dispatch(key + '/reset'))
         }
       })
-      return Promise.all(p)
+      await Promise.all(p)
     },
 
     async init ({ dispatch, commit }, payload: InitConfig) {
-      // Sets the version and hash of Fluidd.
-      commit('version/setVersion', process.env.VERSION)
-      commit('version/setHash', process.env.HASH)
-
       // Set the api connection state..
       commit('socket/setApiConnected', payload.apiConnected)
 
       // Init the host and local configs..
-      return [
-        await dispatch('config/initHost', payload),
-        await dispatch('config/initLocal', payload)
-      ]
+      await Promise.all([
+        dispatch('config/initHost', payload),
+        dispatch('config/initLocal', payload)
+      ])
+
+      commit('config/setAppReady', true)
+    },
+
+    async resetKlippy ({ dispatch, commit }) {
+      commit('socket/setAcceptNotifications', false)
+
+      await Promise.all([
+        dispatch('server/resetKlippy'),
+        dispatch('charts/resetChartStore'),
+        dispatch('reset', [
+          'printer',
+          'wait'
+        ])
+      ])
     },
 
     /**

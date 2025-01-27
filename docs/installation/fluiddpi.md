@@ -1,8 +1,8 @@
 ---
 layout: default
-title: FluiddPI
+title: FluiddPI (not recommended)
 parent: Installation
-nav_order: 1
+nav_order: 4
 permalink: /installation/fluiddpi
 ---
 
@@ -17,10 +17,21 @@ permalink: /installation/fluiddpi
 
 ---
 
+## ⚠️ WARNING ⚠️
+{: .text-red-300 #warning}
+
+FluiddPI is not under active maintenance and we've had reports from users
+finding issues while using it.
+
+As such, our recommendation is that you **do not use FluiddPI**, and instead
+use [KIAUH](/installation/kiauh) to install Fluidd.
+
+---
+
 ## Overview
 
 FluiddPI is a Raspberry Pi OS Lite image, preconfigured with Klipper, Moonraker and
-Fluidd. It is the recommended way to install Fluidd.
+Fluidd.
 
 [View on GitHub](https://github.com/fluidd-core/FluiddPi){: .btn .fs-5 .mb-4 .mb-md-0 }
 
@@ -52,13 +63,13 @@ the warnings in the file.
    a. *Note:* Often, connectivity issues can be boiled down to WiFi issues. If
       you're having trouble, try plugging in an ethernet cable.
 2. Boot the Pi from the card.
-3. Log into your Pi via SSH (it should be located at `http://fluiddpi.local`)
+3. Log into your Pi via SSH (it should be located at `fluiddpi.local`)
    if your computer supports Bonjour. If not, you may need to access via it's IP
    address.
    - If your computer supports Bonjour, it should be located at
-     `http://fluiddpi.local`.
+     `fluiddpi.local`.
    - For networks that correctly manage DNS, your host maybe located at
-     `http://fluiddpi`.
+     `fluiddpi`.
    - If you can't find your Pi, try inspecting your Router web UI.
 4. Configure your host.
    - The default username and password is `pi` and `raspberry`.

@@ -1,7 +1,8 @@
-import { GetterTree } from 'vuex'
-import { ServerInfo, ServerConfig, ServerState, SystemInfo, ServerSystemStat, ServiceInfo, ServiceState } from './types'
-import { RootState } from '../types'
+import type { GetterTree } from 'vuex'
+import type { ServerInfo, ServerConfig, ServerState, SystemInfo, ServerSystemStat, ServiceInfo, ServiceState } from './types'
+import type { RootState } from '../types'
 import { Globals } from '@/globals'
+import { gte, valid } from 'semver'
 
 export const getters: GetterTree<ServerState, RootState> = {
   /**
@@ -9,6 +10,11 @@ export const getters: GetterTree<ServerState, RootState> = {
    */
   getInfo: (state): ServerInfo => {
     return state.info
+  },
+
+  getIsMinApiVersion: (state) => (minVersion: string) => {
+    const apiVersion = state.info.api_version_string
+    return apiVersion && valid(apiVersion) && valid(minVersion) && gte(apiVersion, minVersion)
   },
 
   /**
@@ -49,8 +55,8 @@ export const getters: GetterTree<ServerState, RootState> = {
 
     const services: ServiceInfo[] = [...available_services].sort().map((name: string) => {
       return name in service_states
-        ? { name: name, ...service_states[name] }
-        : { name: name }
+        ? { name, ...service_states[name] }
+        : { name }
     })
 
     return services
@@ -60,7 +66,7 @@ export const getters: GetterTree<ServerState, RootState> = {
    * Maps configuration files to an object representing a config doc link,
    * along with a service name.
    */
-  getConfigMapByFilename: (state, getters) => (filename: string) => {
+  getConfigMapByFilename: (state, getters, rootState, rootGetters) => (filename: string) => {
     const configMap = Globals.CONFIG_SERVICE_MAP
 
     // First, see if can find an exact match.
@@ -76,9 +82,21 @@ export const getters: GetterTree<ServerState, RootState> = {
       item = configMap.find(o => o.suffix && filename.endsWith(o.suffix.toLowerCase()))
     }
 
+    if (
+      item?.service === 'klipper' &&
+      item.link
+    ) {
+      const klippyApp = rootGetters['printer/getKlippyApp']
+
+      item.link = item.link.replace('{klipperDomain}', klippyApp.domain)
+    }
+
     if (item) {
+      const itemService = item?.service
+      const instanceIds = rootState.server.system_info?.instance_ids
+
       return {
-        serviceSupported: getters.getServices.some((i: ServiceInfo) => i.name === item?.service),
+        serviceSupported: (instanceIds && itemService in instanceIds) || getters.getServices.some((i: ServiceInfo) => i.name === itemService),
         ...item
       }
     }

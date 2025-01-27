@@ -1,5 +1,6 @@
 <template>
   <v-row
+    v-if="hasZOffsetApplyEndstop || hasZOffsetApplyProbe"
     align="start"
     justify="end"
   >
@@ -8,10 +9,10 @@
       class="text-right"
     >
       <v-btn-toggle
-        v-if="moveDistance"
         v-model="moveDistance"
         mandatory
         dense
+        class="elevation-2"
       >
         <app-btn
           v-for="(value, i) in zAdjustValues"
@@ -19,15 +20,18 @@
           small
           class="px-1"
           :disabled="!klippyReady"
-          :min-width="36"
+          min-width="36"
           :value="value"
         >
           {{ value }}
         </app-btn>
       </v-btn-toggle>
-      <div class="mt-1">
+      <div
+        class="mt-1"
+        :class="{ 'text--disabled': !klippyReady }"
+      >
         <span class="secondary--text">{{ $t('app.general.label.z_offset') }}&nbsp;</span>
-        <span>{{ ZHomingOrigin }}mm</span>
+        <span>{{ zHomingOrigin.toFixed(3) }}mm</span>
       </div>
     </v-col>
     <v-col cols="6">
@@ -41,11 +45,11 @@
           class="pr-1"
         >
           <app-btn
-            :loading="hasWait('ZAdjust')"
+            :loading="hasWait($waits.onZAdjust)"
             :disabled="!klippyReady"
             small
             block
-            @click="sendZAdjustGcode('+', moveDistance, waits.onZAdjust)"
+            @click="sendZAdjustGcode('+')"
           >
             <v-icon small>
               $zUp
@@ -57,11 +61,11 @@
           class="pr-1"
         >
           <app-btn
-            :loading="hasWait('ZAdjust')"
+            :loading="hasWait($waits.onZAdjust)"
             :disabled="!klippyReady"
             small
             block
-            @click="sendZAdjustGcode('-', moveDistance, waits.onZAdjust)"
+            @click="sendZAdjustGcode('-')"
           >
             <v-icon small>
               $zDown
@@ -73,15 +77,63 @@
           class="pr-1"
         >
           <app-btn
-            :disabled="!klippyReady || printerPrinting || (ZHomingOrigin == 0)"
+            v-if="hasZOffsetApplyEndstop !== hasZOffsetApplyProbe"
+            :disabled="!klippyReady || printerPrinting || zHomingOrigin === 0"
             small
             block
-            @click="handleZApplyDialog"
+            @click="handleZOffsetApply"
           >
             <v-icon small>
               $save
             </v-icon>
           </app-btn>
+
+          <v-menu
+            v-else
+            left
+            offset-y
+            transition="slide-y-transition"
+          >
+            <template #activator="{ on, attrs, value }">
+              <app-btn
+                v-bind="attrs"
+                :disabled="!klippyReady || printerPrinting || zHomingOrigin === 0"
+                small
+                block
+                v-on="on"
+              >
+                <v-icon small>
+                  $save
+                </v-icon>
+                <v-icon
+                  small
+                  class="ml-1"
+                  :class="{ 'rotate-180': value }"
+                >
+                  $chevronDown
+                </v-icon>
+              </app-btn>
+            </template>
+            <v-list dense>
+              <template v-for="command of ['Z_OFFSET_APPLY_ENDSTOP', 'Z_OFFSET_APPLY_PROBE']">
+                <v-list-item
+                  :key="command"
+                  @click="sendGcode(command)"
+                >
+                  <v-list-item-icon>
+                    <v-icon>
+                      $expandVertical
+                    </v-icon>
+                  </v-list-item-icon>
+                  <v-list-item-content>
+                    <v-list-item-title>
+                      {{ command }}
+                    </v-list-item-title>
+                  </v-list-item-content>
+                </v-list-item>
+              </template>
+            </v-list>
+          </v-menu>
         </v-col>
       </v-row>
     </v-col>
@@ -91,74 +143,65 @@
 <script lang="ts">
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
-import { Waits } from '@/globals'
+import type { GcodeCommands } from '@/store/printer/types'
 
 @Component({})
 export default class ZHeightAdjust extends Mixins(StateMixin) {
-  waits = Waits
-  moveDistance: number | null = null
+  moveDistanceValue: number | null = null
 
-  get ZHomingOrigin () {
+  get zHomingOrigin (): number {
     // This is an array of 4 values, representing the homing origin.
     // It should be in the order of; X, Y, Z, E.
-    if (
-      this.$store.state.printer.printer.gcode_move.homing_origin &&
-      this.$store.state.printer.printer.gcode_move.homing_origin.length >= 4
-    ) {
-      const origin = this.$store.state.printer.printer.gcode_move.homing_origin[2]
-      return origin.toFixed(3)
-    } else {
-      return null
-    }
+    const { homing_origin } = this.$store.state.printer.printer.gcode_move
+
+    const zHomingOrigin: number = homing_origin && homing_origin.length >= 4
+      ? +homing_origin[2]
+      : 0
+
+    return zHomingOrigin
   }
 
-  get zAdjustValues () {
+  get zAdjustValues (): number[] {
     return this.$store.state.config.uiSettings.general.zAdjustDistances
   }
 
-  mounted () {
-    this.moveDistance = this.zAdjustValues[0]
+  get moveDistance (): number {
+    return this.moveDistanceValue || this.zAdjustValues[0]
+  }
+
+  set moveDistance (value: number) {
+    this.moveDistanceValue = value
+  }
+
+  get availableCommands (): GcodeCommands {
+    return this.$store.getters['printer/getAvailableCommands'] as GcodeCommands
+  }
+
+  get hasZOffsetApplyProbe (): boolean {
+    return 'Z_OFFSET_APPLY_PROBE' in this.availableCommands
+  }
+
+  get hasZOffsetApplyEndstop (): boolean {
+    return 'Z_OFFSET_APPLY_ENDSTOP' in this.availableCommands
   }
 
   /**
    * Send a Z adjust gcode script.
    */
-  sendZAdjustGcode (direction: '+' | '-', distance: string, wait?: string) {
+  sendZAdjustGcode (direction: '+' | '-') {
     const zHomed = this.$store.getters['printer/getHomedAxes']('z')
-    const gcode = `SET_GCODE_OFFSET Z_ADJUST=${direction}${distance} MOVE=${+zHomed}`
-    this.sendGcode(gcode, wait)
+    const gcode = `SET_GCODE_OFFSET Z_ADJUST=${direction}${this.moveDistance} MOVE=${+zHomed}`
+    this.sendGcode(gcode, this.$waits.onZAdjust)
   }
 
-  get printerUsesProbeAsEndstop (): boolean {
-    return this.$store.getters['printer/getPrinterSettings']('stepper_z.endstop_pin') === 'probe:z_virtual_endstop'
-  }
-
-  handleZApplyDialog () {
-    let msg = this.$tc('app.general.simple_form.msg.apply_z_offset_endstop')
-    let gcode = 'Z_OFFSET_APPLY_ENDSTOP'
-
-    if (this.printerUsesProbeAsEndstop) {
-      msg = this.$tc('app.general.simple_form.msg.apply_z_offset_probe')
-      gcode = 'Z_OFFSET_APPLY_PROBE'
+  handleZOffsetApply () {
+    if (this.hasZOffsetApplyProbe && !this.hasZOffsetApplyEndstop) {
+      this.sendGcode('Z_OFFSET_APPLY_PROBE')
     }
 
-    this.$confirm(
-      msg,
-      {
-        title: this.$tc('app.general.label.apply_z_offset'),
-        color: 'card-heading',
-        icon: '$error',
-        buttonTrueText: this.$tc('app.general.btn.save_restart'),
-        buttonTrueColor: 'primary',
-        buttonFalseText: this.$tc('app.general.btn.cancel')
-      }
-    )
-      .then(res => {
-        if (res) {
-          this.sendGcode(gcode, this.waits.onZApply)
-          this.sendGcode('SAVE_CONFIG', this.waits.onSaveConfig)
-        }
-      })
+    if (this.hasZOffsetApplyEndstop && !this.hasZOffsetApplyProbe) {
+      this.sendGcode('Z_OFFSET_APPLY_ENDSTOP')
+    }
   }
 }
 </script>

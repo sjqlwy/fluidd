@@ -1,7 +1,7 @@
 import Vue from 'vue'
-import { MutationTree } from 'vuex'
-import { VersionState } from './types'
-import { defaultState } from './index'
+import type { MutationTree } from 'vuex'
+import type { VersionState } from './types'
+import { defaultState } from './state'
 
 export const mutations: MutationTree<VersionState> = {
   /**
@@ -9,10 +9,6 @@ export const mutations: MutationTree<VersionState> = {
    */
   setReset (state) {
     Object.assign(state, defaultState())
-  },
-
-  setRefreshing (state, payload) {
-    state.refreshing = payload
   },
 
   setUpdateStatus (state, payload) {
@@ -47,12 +43,5 @@ export const mutations: MutationTree<VersionState> = {
 
   setClearUpdateResponse (state) {
     state.responses = []
-  },
-
-  setVersion (state, payload) {
-    state.fluidd.version = payload
-  },
-  setHash (state, payload) {
-    state.fluidd.hash = payload
   }
 }

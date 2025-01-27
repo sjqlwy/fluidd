@@ -1,6 +1,6 @@
-import { ActionTree } from 'vuex'
-import { HistoryItem, HistoryState } from './types'
-import { RootState } from '../types'
+import type { ActionTree } from 'vuex'
+import type { HistoryItem, HistoryState } from './types'
+import type { RootState } from '../types'
 import { SocketActions } from '@/api/socketActions'
 import { Globals } from '@/globals'
 
@@ -21,6 +21,18 @@ export const actions: ActionTree<HistoryState, RootState> = {
 
     // Load the known totals.
     SocketActions.serverHistoryTotals()
+  },
+
+  async updateHistory ({ commit }, payload) {
+    if (payload) {
+      commit('setUpdateHistory', payload)
+    }
+  },
+
+  async clearHistoryThumbnails ({ commit }, payload) {
+    if (payload) {
+      commit('setClearHistoryThumbnails', payload)
+    }
   },
 
   /**

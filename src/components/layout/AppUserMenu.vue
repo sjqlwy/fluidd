@@ -4,17 +4,21 @@
     offset-y
     :close-delay="300"
   >
-    <template #activator="{ on, attrs }">
-      <v-btn
-        v-bind="attrs"
-        fab
-        text
-        small
-        v-on="on"
-        @click="$emit('drawer')"
-      >
-        <v-icon>$account</v-icon>
-      </v-btn>
+    <template #activator="{ on: menu, attrs }">
+      <v-tooltip bottom>
+        <template #activator="{ on: tooltip }">
+          <app-btn
+            v-bind="attrs"
+            icon
+            text
+            v-on="{ ...tooltip, ...menu }"
+            @click="$emit('drawer')"
+          >
+            <v-icon>$account</v-icon>
+          </app-btn>
+        </template>
+        <span>{{ currentUser }}</span>
+      </v-tooltip>
     </template>
 
     <v-card>
@@ -27,40 +31,53 @@
         <span class="text-h5">{{ currentUser }}</span>
 
         <div
-          v-if="!isTrustedOnly"
+          v-if="user && !isTrustedOnly"
           class="mt-3"
         >
           <app-btn
+            :disabled="user.source !== 'moonraker'"
             small
             @click="$emit('change-password')"
           >
-            Change password
+            {{ $t('app.general.label.change_password') }}
           </app-btn>
+          <div
+            v-if="user.source !== 'moonraker'"
+            class="mt-2"
+          >
+            <small>
+              {{ $t('app.general.label.user_managed_source', { source: $t(`app.general.label.${user.source}`) }) }}
+            </small>
+          </div>
         </div>
       </v-card-text>
 
       <v-divider />
 
-      <v-list class="py-0">
-        <v-list-item
-          dense
-          @click="$filters.routeTo($router, '/settings#auth')"
-        >
+      <v-list
+        dense
+        class="py-0"
+      >
+        <v-list-item @click="$filters.routeTo({ name: 'settings', hash: '#auth' })">
           <v-list-item-icon>
             <v-icon>$addAccount</v-icon>
           </v-list-item-icon>
-          <v-list-item-title>Manage accounts</v-list-item-title>
-        </v-list-item>
-
-        <v-divider v-if="!isTrustedOnly" />
-
-        <v-list-item v-if="!isTrustedOnly">
-          <v-list-item-content class="justify-center">
-            <app-btn @click="handleLogout">
-              Logout
-            </app-btn>
+          <v-list-item-content>
+            <v-list-item-title>{{ $t('app.general.label.manage_accounts') }}</v-list-item-title>
           </v-list-item-content>
         </v-list-item>
+
+        <template v-if="!isTrustedOnly">
+          <v-divider />
+
+          <v-list-item>
+            <v-list-item-content class="justify-center">
+              <app-btn @click="handleLogout">
+                {{ $t('app.general.btn.logout') }}
+              </app-btn>
+            </v-list-item-content>
+          </v-list-item>
+        </template>
       </v-list>
     </v-card>
   </v-menu>

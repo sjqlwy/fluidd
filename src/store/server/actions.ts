@@ -1,9 +1,13 @@
-import { ActionTree } from 'vuex'
-import { ServerState, ServerThrottledState, ServiceState } from './types'
-import { RootState } from '../types'
+import Vue from 'vue'
+import type { ActionTree } from 'vuex'
+import type { CanbusUuid, Peripherals, ServerInfo, ServerState, ServerThrottledState, ServiceState, SystemInfo } from './types'
+import type { RootState } from '../types'
 import { SocketActions } from '@/api/socketActions'
 import { Globals } from '@/globals'
-import { AppPushNotification } from '../notifications/types'
+import type { AppPushNotification } from '../notifications/types'
+import { EventBus } from '@/eventBus'
+import i18n from '@/plugins/i18n'
+import { gte, valid } from 'semver'
 
 let retryTimeout: number
 
@@ -13,6 +17,10 @@ export const actions: ActionTree<ServerState, RootState> = {
    */
   async reset ({ commit }) {
     commit('setReset')
+  },
+
+  async resetKlippy ({ commit }) {
+    commit('setResetKlippy')
   },
 
   /**
@@ -26,20 +34,46 @@ export const actions: ActionTree<ServerState, RootState> = {
       payload.components &&
       payload.components.length > 0
     ) {
-      const componentsToInit: { [index: string]: { name: string; dispatch: string } } = Globals.MOONRAKER_COMPONENTS
-      for (const key in componentsToInit) {
-        const component = componentsToInit[key]
-        if (payload.components.includes(component.name)) {
-          dispatch(component.dispatch, undefined, { root: true })
-        }
-      }
+      const promises = Object.values(Globals.MOONRAKER_COMPONENTS)
+        .map((component) => (
+          payload.components.includes(component.name)
+            ? dispatch(component.dispatch, undefined, { root: true })
+            : null
+        ))
+        .filter(promise => promise)
+
+      await Promise.all(promises)
+    }
+  },
+
+  async checkMoonrakerMinVersion ({ state, dispatch }) {
+    const moonrakerVersion = state.info.moonraker_version ?? '?'
+
+    const fullMoonrakerVersion = moonrakerVersion.includes('-')
+      ? moonrakerVersion
+      : `${moonrakerVersion}-0`
+
+    if (
+      valid(fullMoonrakerVersion) &&
+      valid(Globals.MOONRAKER_MIN_VERSION) &&
+      !gte(fullMoonrakerVersion, Globals.MOONRAKER_MIN_VERSION)
+    ) {
+      dispatch('notifications/pushNotification', {
+        id: `old-moonraker-${moonrakerVersion}`,
+        title: 'Moonraker',
+        description: i18n.t('app.version.label.old_component_version', { name: 'Moonraker', version: Globals.MOONRAKER_MIN_VERSION }),
+        to: '/settings#versions',
+        btnText: i18n.t('app.version.btn.view_versions'),
+        type: 'warning',
+        merge: true
+      }, { root: true })
     }
   },
 
   /**
    * On server info
    */
-  async onServerInfo ({ commit, dispatch, state }, payload) {
+  async onServerInfo ({ commit, dispatch, state }, payload: ServerInfo) {
     // This payload should return a list of enabled components
     // and root directories that are available.
     SocketActions.printerInfo()
@@ -47,12 +81,24 @@ export const actions: ActionTree<ServerState, RootState> = {
     SocketActions.machineProcStats()
     SocketActions.machineSystemInfo()
 
+    const klippyConnectedNow = (
+      payload.klippy_connected &&
+      !state.info.klippy_connected
+    )
+
     commit('setServerInfo', payload)
+
+    dispatch('checkMoonrakerMinVersion')
 
     if (payload.klippy_state !== 'ready') {
       // If klippy is not connected, we'll continue to
       // retry the init process.
-      if (state.klippy_retries === 0) dispatch('initComponents', payload)
+      if (state.klippy_retries === 0) {
+        dispatch('initComponents', payload)
+      }
+      if (klippyConnectedNow) {
+        SocketActions.printerObjectsList()
+      }
       commit('setKlippyRetries', state.klippy_retries + 1)
       clearTimeout(retryTimeout)
       retryTimeout = window.setTimeout(() => {
@@ -72,6 +118,22 @@ export const actions: ActionTree<ServerState, RootState> = {
   async onServerConfig ({ commit }, payload) {
     if (payload.config) {
       commit('setServerConfig', payload.config)
+    }
+  },
+
+  async onLogsRollOver (_, payload?: { rolled_over?: string[], failed?: Record<string, string> }) {
+    if (payload?.failed && Object.keys(payload.failed).length > 0) {
+      const message = Object.values(payload.failed)
+        .join('\n')
+
+      EventBus.$emit(message, { type: 'error' })
+    } else if (payload?.rolled_over && payload.rolled_over.length) {
+      const applications = payload.rolled_over
+        .map(Vue.$filters.prettyCase)
+        .join(', ')
+      const message = i18n.tc('app.general.msg.rolledover_logs', 0, { applications })
+
+      EventBus.$emit(message, { type: 'success' })
     }
   },
 
@@ -101,8 +163,18 @@ export const actions: ActionTree<ServerState, RootState> = {
     }
   },
 
-  async onMachineSystemInfo ({ commit }, payload) {
+  async onMachineSystemInfo ({ commit }, payload: { system_info?: SystemInfo }) {
     commit('setSystemInfo', payload)
+  },
+
+  async onMachinePeripherals ({ commit }, payload: Partial<Peripherals>) {
+    commit('setMachinePeripherals', payload)
+  },
+
+  async onMachinePeripheralsCanbus ({ commit }, payload: { can_uuids: CanbusUuid[], __request__: any }) {
+    const { interface: canbusInterface } = payload.__request__.params
+
+    commit('setMachinePeripheralsCanbus', { canbusInterface, can_uuids: payload.can_uuids })
   },
 
   async onServiceStateChanged ({ commit }, payload: ServiceState) {

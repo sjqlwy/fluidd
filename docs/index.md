@@ -30,30 +30,32 @@ firmware.
 - [Notifications](/features/notifications) on Pi throttling + more
 - [Macro organization](/features/macros)
 - Full [localization](/development/localization) (i18n) support
-- View and Edit your Klipper Config AND Gcode files in app
+- View and Edit your Klipper config in app with code folding and Codelens support
+- View and Edit your Gcode files in app
 - [Bed Mesh](/features/bed_mesh) levelling
+- [Multiple extruder](/features/multiple_extruders) configurations
 - [Thermal Presets](/features/presets)
 - [Multiple web cam](/features/cameras) support
 - Control power devices - GPIO (relays), TPLink Smartplug, and Tasmota
 - [Print history](/features/print_history)
 - [Version management](/updates/automated) and upgrades
 - Utilization graphs
+- Filament [spool management](/features/spoolman)
 
 ## Supporting Fluidd
 
-Fluidd is developed and maintained by [Craig Bassett](https://github.com/cadriel)
-and our contributors - along with support from the entire Klipper Team, associated printer communities and you, the user.
+Fluidd development is driven by passionate volunteers who dedicate their time to improving and expanding its capabilities.
 
-- [Make a recurring payment with Patreon](https://patreon.com/cadriel)
-- [Make a one time payment with Ko-Fi](https://ko-fi.com/cadriel)
-- [Make a one time payment with Paypal](https://paypal.me/fluiddui)
+Your sponsorship can help us enhance Fluidd, introduce new features, and ensure it remains accessible to all Klipper users.
+
+Your support can make a significant impact on the evolution of Fluidd. Please consider [sponsoring Fluidd](https://github.com/sponsors/fluidd-core).
 
 ## Docker
 
 Fluidd ships with Docker support built in. The official docker can be found
-[here](https://hub.docker.com/r/cadriel/fluidd), and further information can be found [here](/installation/docker).
+[here](https://github.com/fluidd-core/fluidd/pkgs/container/fluidd), and further information can be found [here](/installation/docker).
 
-## Support
+## Need help?
 
 Primary support is provided via Discord, or Github Issues.
 
@@ -67,7 +69,7 @@ to edit this page. Any help is appreciated.
 
 ## Architecture
 
-Fluidd relies on [Moonraker](https://github.com/Arksine/moonraker/tree/master/docs) and
+Fluidd relies on [Moonraker](https://moonraker.readthedocs.io/) and
 [Klipper](https://www.klipper3d.org/) to function. To learn more about the
 architecture and how these components work together, visit the development
 resources [here](/development).

@@ -2,6 +2,8 @@ export interface ServerState {
   klippy_retries: number;
   info: ServerInfo;
   system_info: SystemInfo | null;
+  peripherals: Peripherals;
+  can_uuids: Record<string, CanbusUuid[]> | null;
   config: ServerConfig;
   moonraker_stats: ServerSystemStat[];
   throttled_state: ServerThrottledState | null;
@@ -33,11 +35,21 @@ export type ServerFlags =
 export interface ServerInfo {
   failed_components: string[];
   klippy_connected: boolean;
-  klippy_state: string;
+  klippy_state: KlippyState;
   components: string[];
   registered_directories: string[];
   warnings: string[];
+  moonraker_version?: string;
+  api_version?: number[]
+  api_version_string?: string
 }
+
+export type KlippyState =
+  'disconnected' |
+  'startup' |
+  'ready' |
+  'error' |
+  'shutdown'
 
 export interface SystemInfo {
   available_services?: string[];
@@ -45,13 +57,19 @@ export interface SystemInfo {
   cpu_info?: CpuInfo;
   sd_info?: SDInfo;
   distribution?: DistroInfo;
+  virtualization?: Virtualization;
+  network?: NetworkState;
+  canbus?: CanBusState;
+  instance_ids: InstanceIds;
 }
 
 export interface ServiceState {
-  [id: string]: {
-    active_state?: string;
-    sub_state?: string;
-  };
+  [id: string]: ServiceStateDetails;
+}
+
+interface ServiceStateDetails {
+  active_state?: string;
+  sub_state?: string;
 }
 
 export interface ServiceInfo {
@@ -89,6 +107,14 @@ export interface DistroInfo {
   version_parts: DistroVersionParts;
   like: string;
   codename: string;
+  release_info?: ReleaseInfo;
+}
+
+export interface ReleaseInfo {
+  codename?: string;
+  id?: string;
+  name?: string;
+  version_id?: string;
 }
 
 export interface DistroVersionParts {
@@ -97,10 +123,116 @@ export interface DistroVersionParts {
   build_number: string;
 }
 
+export interface Virtualization {
+  virt_type: string;
+  virt_identifier: string;
+}
+
+export interface NetworkState {
+  [id: string]: NetworkInterface
+}
+
+export interface NetworkInterface {
+  mac_address?: string;
+  ip_addresses?: NetworkIpAddress[];
+}
+
+export interface NetworkIpAddress {
+  family?: string;
+  address?: string;
+  is_link_local?: boolean;
+}
+
+export interface CanBusState {
+  [id: string]: CanBusInterface;
+}
+
+export interface CanBusInterface {
+  tx_queue_len?: number;
+  bitrate?: number;
+  driver?: string;
+}
+
+export interface InstanceIds {
+  moonraker: string;
+  klipper: string;
+}
+
+export interface Peripherals {
+  usb_devices: UsbDevice[] | null;
+  serial_devices: SerialDevice[] | null;
+  v4l2_devices: V4l2Device[] | null;
+  libcamera_devices: LibcameraDevice[] | null;
+}
+
+export interface UsbDevice {
+  bus_num: number;
+  device_num: number;
+  usb_location: string;
+  vendor_id: string;
+  product_id: string;
+  manufacturer?: string | null;
+  product?: string | null;
+  class?: string | null;
+  subclass?: string | null;
+  protocol?: string | null;
+  description?: string | null;
+  serial?: string | null;
+}
+
+export interface SerialDevice {
+  device_type: string;
+  device_path: string;
+  device_name: string;
+  driver_name: string;
+  path_by_hardware?: string | null;
+  path_by_id?: string | null;
+  usb_location?: string | null;
+}
+
+export interface V4l2Device {
+  device_name: string;
+  device_path: string;
+  camera_name: string;
+  driver_name: string;
+  alt_name?: string | null;
+  hardware_bus: string;
+  capabilities: string[];
+  version: string;
+  path_by_hardware?: string | null;
+  path_by_id?: string | null;
+  usb_location?: string | null;
+  modes: V4l2DeviceMode[];
+}
+
+export interface V4l2DeviceMode {
+  format: string;
+  description?: string | null;
+  flags: string[];
+  resolutions: string[];
+}
+
+export interface LibcameraDevice {
+  libcamera_id: string;
+  model: string;
+  modes: LibcameraDeviceMode[];
+}
+
+export interface LibcameraDeviceMode {
+  format: string;
+  resolutions: string[];
+}
+
+export interface CanbusUuid {
+  uuid: string;
+  application: string;
+}
+
 export interface ServerConfig {
   authorization: ServerAuthorization;
   server: ServerConfiguration;
   data_store?: DataStoreConfiguration;
+  spoolman?: SpoolmanConfiguration;
 }
 
 export interface ServerAuthorization {
@@ -115,4 +247,8 @@ export interface ServerConfiguration {
 export interface DataStoreConfiguration {
   gcode_store_size?: number;
   temperature_store_size?: number;
+}
+
+export interface SpoolmanConfiguration {
+  server?: string;
 }

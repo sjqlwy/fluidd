@@ -1,4 +1,4 @@
-import { JwtPayload } from 'jwt-decode'
+import type { JwtPayload } from 'jwt-decode'
 
 export interface AuthState {
   authenticated: boolean;
@@ -11,5 +11,7 @@ export interface AuthState {
 
 export interface AppUser {
   username: string;
+  password?: string;
+  source: 'moonraker' | 'ldap';
   created_on: number;
 }

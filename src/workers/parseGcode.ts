@@ -1,36 +1,77 @@
 /* eslint-disable no-fallthrough */
-import { ArcMove, LinearMove, Move, PositioningMode, Rotation } from '@/store/gcodePreview/types'
+import type { ArcMove, Layer, LinearMove, Move, Part, Point, PositioningMode } from '@/store/gcodePreview/types'
+import isKeyOf from '@/util/is-key-of'
 import { pick } from 'lodash-es'
-import { Subject } from 'threads/observable'
+import shlex from 'shlex'
 
-function parseLine (line: string) {
-  const [, command, args = ''] = line
-    .trim()
-    .split(';', 2)[0]
-    .split(/^([a-z][0-9]+)\s+/i)
+const getArgsFromGcodeCommandArgs = (gcodeCommandArgs: string) => {
+  const args: Record<string, number> = {}
 
-  if (!/^(G|M)\d+$/.test(command)) {
-    return null
+  for (const [, key, value] of gcodeCommandArgs.matchAll(/([a-z])[ \t]*(-?(?:\d+(?:\.\d+)?|\.\d+))/gi)) {
+    args[key.toLowerCase()] = +value
   }
 
-  const argMap: any = {}
+  return args
+}
 
-  for (const [, key, value] of args.matchAll(/([a-z])[ \t]*(-?\d+(?:\.\d+)?)/ig)) {
-    argMap[key.toLowerCase()] = Number(value)
+const getArgsFromMacroCommandArgs = (macroCommandArgs: string) => {
+  const args: Record<string, string> = {}
+
+  for (const entry of shlex.split(macroCommandArgs)) {
+    const eqIndex = entry.indexOf('=')
+    const key = entry.substring(0, eqIndex)
+    const value = entry.substring(eqIndex + 1)
+    args[key.toLowerCase()] = value
+  }
+
+  return args
+}
+
+const parseLine = (line: string) => {
+  const clearedLine = line
+    .trim()
+    .split(';', 2)[0]
+
+  const [, gcodeCommand, gcodeCommandArgs = ''] = clearedLine
+    .split(/^([gm]\d+)\s*/i)
+
+  if (gcodeCommand) {
+    return {
+      type: 'gcode' as const,
+      command: gcodeCommand.toUpperCase(),
+      args: getArgsFromGcodeCommandArgs(gcodeCommandArgs)
+    }
+  }
+
+  const [, macroCommand, macroCommandArgs = ''] = clearedLine
+    .split(/^(SET_PRINT_STATS_INFO|EXCLUDE_OBJECT_DEFINE|SET_RETRACTION)\s+/i)
+
+  if (macroCommand) {
+    return {
+      type: 'macro' as const,
+      command: macroCommand.toUpperCase(),
+      args: getArgsFromMacroCommandArgs(macroCommandArgs)
+    }
   }
 
   return {
-    command: command.toUpperCase(),
-    args: argMap
+    type: 'other' as const
   }
 }
 
-export default function parseGcode (gcode: string, subject: Subject<number>) {
+const decimalRound = (a: number) => {
+  return Math.round(a * 10000) / 10000
+}
+
+const parseGcode = (gcode: string, sendProgress: (filePosition: number) => void) => {
   const moves: Move[] = []
+  const layers: Layer[] = []
+  const parts: Part[] = []
   const lines = gcode.split('\n')
 
-  let extrusionMode = PositioningMode.Relative
-  let positioningMode = PositioningMode.Absolute
+  let newLayerForNextMove = false
+  let extrusionMode: PositioningMode = 'relative'
+  let positioningMode: PositioningMode = 'absolute'
   const toolhead = {
     x: 0,
     y: 0,
@@ -49,124 +90,178 @@ export default function parseGcode (gcode: string, subject: Subject<number>) {
   }
 
   for (let i = 0; i < lines.length; i++) {
-    const {
-      command,
-      args
-    } = parseLine(lines[i]) ?? {}
-
-    if (!command) {
-      toolhead.filePosition += lines[i].length + 1 // + 1 for newline
-
-      continue
-    }
+    const { type, command, args } = parseLine(lines[i]) ?? {}
 
     let move: Move | null = null
 
-    switch (command) {
-      case 'G0':
-      case 'G1':
-        move = pick(args, [
-          'x', 'y', 'z', 'e'
-        ]) as LinearMove
-        break
-      case 'G2':
-      case 'G3':
-        move = {
-          ...pick(args, [
+    if (type === 'macro') {
+      switch (command) {
+        case 'SET_PRINT_STATS_INFO':
+          if ('current_layer' in args) {
+            newLayerForNextMove = true
+          }
+          break
+        case 'EXCLUDE_OBJECT_DEFINE':
+          if ('polygon' in args && args.polygon) {
+            const polygonData = JSON.parse(args.polygon) as [number, number][]
+
+            const part: Part = {
+              polygon: polygonData
+                .map(([x, y]): Point => ({
+                  x,
+                  y
+                }))
+            }
+
+            parts.push(Object.freeze(part))
+          }
+          break
+        case 'SET_RETRACTION':
+          if ('retract_length' in args) {
+            fwretraction.length = +args.retract_length
+          }
+          if ('unretract_extra_length' in args) {
+            fwretraction.extrudeExtra = +args.unretract_extra_length
+          }
+          break
+      }
+    } else if (type === 'gcode') {
+      switch (command) {
+        case 'G0':
+        case 'G1': {
+          const params = [
+            'x', 'y', 'z', 'e'
+          ]
+
+          if (params.some(param => param in args)) {
+            move = {
+              ...pick(args, params),
+              filePosition: toolhead.filePosition
+            } satisfies LinearMove
+          }
+          break
+        }
+        case 'G2':
+        case 'G3': {
+          const params = [
             'x', 'y', 'z', 'e',
-            'i', 'j', 'r'
-          ]),
-          direction: command === 'G2'
-            ? Rotation.Clockwise
-            : Rotation.CounterClockwise
-        } as ArcMove
-        break
-      case 'G10':
-        move = {
-          e: -fwretraction.length
-        }
+            'i', 'j', 'k', 'r'
+          ]
 
-        if (fwretraction.z !== 0) {
-          move.z = toolhead.z + fwretraction.z
+          if (params.some(param => param in args)) {
+            move = {
+              ...pick(args, params),
+              direction: command === 'G2'
+                ? 'clockwise'
+                : 'counter-clockwise',
+              filePosition: toolhead.filePosition
+            } satisfies ArcMove
+          }
+          break
         }
-        break
-      case 'G11':
-        move = {
-          e: fwretraction.length + fwretraction.extrudeExtra
-        }
+        case 'G10':
+          move = {
+            e: -fwretraction.length,
+            filePosition: toolhead.filePosition
+          } satisfies LinearMove
 
-        if (fwretraction.z !== 0) {
-          move.z = toolhead.z - fwretraction.z
-        }
-        break
-      case 'G90':
-        positioningMode = PositioningMode.Absolute
-      case 'M82':
-        extrusionMode = PositioningMode.Absolute
-        toolhead.e = 0
-        break
-      case 'G91':
-        positioningMode = PositioningMode.Relative
-      case 'M83':
-        extrusionMode = PositioningMode.Relative
-        break
-      case 'G92':
-        if (extrusionMode === PositioningMode.Absolute) {
-          toolhead.e = args.e ?? toolhead.e
-        }
+          if (fwretraction.z !== 0) {
+            move.z = decimalRound(toolhead.z + fwretraction.z)
+          }
+          break
+        case 'G11':
+          move = {
+            e: decimalRound(fwretraction.length + fwretraction.extrudeExtra),
+            filePosition: toolhead.filePosition
+          } satisfies LinearMove
 
-        if (positioningMode === PositioningMode.Absolute) {
-          toolhead.x = args.x ?? toolhead.x
-          toolhead.y = args.y ?? toolhead.y
-          toolhead.z = args.z ?? toolhead.z
-        }
-        break
-      case 'M207':
-        fwretraction.length = args.s ?? fwretraction.length
-        fwretraction.extrudeExtra = args.s ?? fwretraction.extrudeExtra
-        fwretraction.z = args.z ?? fwretraction.z
-        break
-    }
+          if (fwretraction.z !== 0) {
+            move.z = decimalRound(toolhead.z - fwretraction.z)
+          }
+          break
+        case 'G90':
+          positioningMode = 'absolute'
+        case 'M82':
+          extrusionMode = 'absolute'
+          toolhead.e = 0
+          break
+        case 'G91':
+          positioningMode = 'relative'
+        case 'M83':
+          extrusionMode = 'relative'
+          break
+        case 'G92':
+          if (extrusionMode === 'absolute') {
+            toolhead.e = args.e ?? toolhead.e
+          }
 
-    if (move) {
-      if (extrusionMode === PositioningMode.Absolute && move.e !== undefined) {
-        const extrusionLength = move.e - toolhead.e
-
-        toolhead.e = move.e
-        move.e = extrusionLength
+          if (positioningMode === 'absolute') {
+            toolhead.x = args.x ?? toolhead.x
+            toolhead.y = args.y ?? toolhead.y
+            toolhead.z = args.z ?? toolhead.z
+          }
+          break
+        case 'M207':
+          fwretraction.length = args.s ?? fwretraction.length
+          fwretraction.z = args.z ?? fwretraction.z
+          break
       }
 
-      if (positioningMode === PositioningMode.Relative) {
-        if (move.x !== undefined) {
-          move.x += toolhead.x
+      if (move) {
+        if (extrusionMode === 'absolute' && move.e !== undefined) {
+          const extrusionLength = decimalRound(move.e - toolhead.e)
+
+          toolhead.e = move.e
+          move.e = extrusionLength
         }
 
-        if (move.y !== undefined) {
-          move.y += toolhead.y
+        if (positioningMode === 'relative') {
+          if (move.x !== undefined) {
+            move.x = decimalRound(move.x + toolhead.x)
+          }
+
+          if (move.y !== undefined) {
+            move.y = decimalRound(move.y + toolhead.y)
+          }
+
+          if (move.z !== undefined) {
+            move.z = decimalRound(move.z + toolhead.z)
+          }
         }
 
-        if (move.z !== undefined) {
-          move.z += toolhead.z
+        if (newLayerForNextMove && move.e && move.e > 0) {
+          const m = move
+          if (['x', 'y', 'i', 'j'].some(x => isKeyOf(x, m) && m[x] !== 0)) {
+            const layer: Layer = {
+              z: toolhead.z,
+              move: moves.length - 1,
+              filePosition: toolhead.filePosition
+            }
+
+            layers.push(Object.freeze(layer))
+
+            newLayerForNextMove = false
+          }
         }
+
+        toolhead.x = move.x ?? toolhead.x
+        toolhead.y = move.y ?? toolhead.y
+        toolhead.z = move.z ?? toolhead.z
+
+        moves.push(Object.freeze(move))
       }
-
-      toolhead.x = move.x ?? toolhead.x
-      toolhead.y = move.y ?? toolhead.y
-      toolhead.z = move.z ?? toolhead.z
-
-      move.filePosition = toolhead.filePosition
-
-      moves.push(Object.freeze(move))
     }
 
     if (i % Math.floor(lines.length / 100) === 0) {
-      subject.next(toolhead.filePosition)
+      sendProgress(toolhead.filePosition)
     }
 
     toolhead.filePosition += lines[i].length + 1 // + 1 for newline
   }
 
-  subject.next(toolhead.filePosition)
+  sendProgress(toolhead.filePosition)
 
-  return moves
+  return { moves, layers, parts }
 }
+
+export default parseGcode

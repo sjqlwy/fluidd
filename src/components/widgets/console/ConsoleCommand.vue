@@ -7,22 +7,29 @@
           :rows="1"
           :value="newValue"
           :items="history"
+          :disabled="disabled"
+          :autofocus="autofocus"
           auto-grow
           clearable
           outlined
           single-line
           dense
           hide-details
+          spellcheck="false"
+          class="console-command"
           @input="emitChange"
           @keyup.enter.exact="emitSend(newValue)"
           @keydown.enter.exact.prevent
-          @keyup.up="historyUp()"
-          @keyup.down="historyDown()"
+          @keydown.up.exact.prevent="historyUp()"
+          @keydown.down.exact.prevent="historyDown()"
           @keydown.prevent.tab="autoComplete()"
         />
       </v-col>
       <v-col cols="auto">
-        <app-btn @click="emitSend(newValue)">
+        <app-btn
+          :disabled="disabled"
+          @click="emitSend(newValue)"
+        >
           {{ $t('app.general.btn.send') }}
         </app-btn>
       </v-col>
@@ -33,21 +40,30 @@
 </template>
 
 <script lang="ts">
-import { GcodeCommands } from '@/store/console/types'
-import { Vue, Component, Prop, Watch } from 'vue-property-decorator'
+import { Vue, Component, Prop, Watch, Ref } from 'vue-property-decorator'
 import { Globals } from '@/globals'
+import type { VInput } from '@/types'
+import type { GcodeCommands } from '@/store/printer/types'
 
 @Component({})
 export default class ConsoleCommand extends Vue {
   @Prop({ type: String })
-  public value!: string
+  readonly value!: string
+
+  @Ref('input')
+  readonly input!: VInput
+
+  @Prop({ type: Boolean })
+  readonly disabled?: boolean
+
+  @Prop({ type: Boolean })
+  readonly autofocus?: boolean
 
   @Watch('value')
   onValueChange (val: string) {
     if (val) {
       this.newValue = val
-      const input = this.$refs.input as HTMLElement
-      input.focus()
+      this.input.focus()
     } else {
       this.newValue = ''
     }
@@ -61,7 +77,7 @@ export default class ConsoleCommand extends Vue {
 
   mounted () {
     this.newValue = this.value
-    const savedHistory = this.$store.state.console.commandHistory
+    const savedHistory: string[] = this.$store.state.console.commandHistory
     this.history = [...savedHistory]
     this.originalHistory = [...savedHistory]
   }
@@ -106,19 +122,32 @@ export default class ConsoleCommand extends Vue {
     }
   }
 
+  get availableCommands (): GcodeCommands {
+    return this.$store.getters['printer/getAvailableCommands'] as GcodeCommands
+  }
+
   autoComplete () {
-    const gcodeCommands: GcodeCommands = this.$store.getters['console/getAllGcodeCommands']
+    const availableCommands = this.availableCommands
+
     if (this.newValue.length) {
-      const commands = Object.keys(gcodeCommands).filter((c: string) => c.toLowerCase().indexOf(this.newValue.toLowerCase()) === 0)
-      if (commands && commands.length === 1) {
+      const commands = Object.keys(availableCommands)
+        .filter(command => command.startsWith(this.newValue.toUpperCase()))
+
+      if (commands.length === 1) {
         this.emitChange(commands[0])
-      } else {
-        commands.forEach((c) => {
-          const message = `// ${c}: ${gcodeCommands[c]}`
-          this.$store.dispatch('console/onAddConsoleEntry', { message, type: 'response' })
-        })
+      } else if (commands.length > 0) {
+        const message = commands
+          .map(command => `// ${command}: ${availableCommands[command].help ?? ''}`)
+          .join('\n')
+        this.$store.dispatch('console/onAddConsoleEntry', { message, type: 'response' })
       }
     }
   }
 }
 </script>
+
+<style lang="scss" scoped>
+  .console-command {
+    font-family: monospace;
+  }
+</style>

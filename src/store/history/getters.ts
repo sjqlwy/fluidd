@@ -1,6 +1,6 @@
-import { GetterTree } from 'vuex'
-import { HistoryItem, HistoryState } from './types'
-import { RootState } from '../types'
+import type { GetterTree } from 'vuex'
+import type { HistoryItem, HistoryState } from './types'
+import type { RootState } from '../types'
 
 export const getters: GetterTree<HistoryState, RootState> = {
   /**
@@ -8,7 +8,7 @@ export const getters: GetterTree<HistoryState, RootState> = {
    */
   getHistory: (state) => {
     return (state.jobs && state.jobs.length)
-      ? [...state.jobs].sort((a, b) => { return b.start_time - a.start_time })
+      ? [...state.jobs].sort((a, b) => b.start_time - a.start_time)
       : []
   },
 

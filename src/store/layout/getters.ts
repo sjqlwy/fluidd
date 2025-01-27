@@ -1,7 +1,8 @@
-import { GetterTree } from 'vuex'
-import { LayoutState, LayoutContainer, LayoutConfig } from './types'
-import { RootState } from '../types'
+import type { GetterTree } from 'vuex'
+import type { LayoutState, LayoutContainer, LayoutConfig } from './types'
+import type { RootState } from '../types'
 import { cloneDeep } from 'lodash-es'
+import vuetify from '@/plugins/vuetify'
 
 export const getters: GetterTree<LayoutState, RootState> = {
   /**
@@ -24,6 +25,8 @@ export const getters: GetterTree<LayoutState, RootState> = {
     if (state.layouts[name]) {
       return cloneDeep(state.layouts[name])
       // return { ...state.layouts[name] }
+    } else if (name.startsWith('dashboard')) {
+      return cloneDeep(state.layouts.dashboard)
     }
   },
 
@@ -31,6 +34,12 @@ export const getters: GetterTree<LayoutState, RootState> = {
     const configs = Object.values(getters.getLayout(layout) ?? {}).flat() as LayoutConfig[]
 
     return configs.find(configs => configs.id === id)?.enabled ?? false
+  },
+
+  isEnabledInCurrentLayout: (state, getters) => (id: string) => {
+    const layout = getters.getSpecificLayoutName
+
+    return getters.isEnabledInLayout(layout, id)
   },
 
   /**
@@ -53,5 +62,13 @@ export const getters: GetterTree<LayoutState, RootState> = {
         if (config) return { ...config }
       }
     }
+  },
+
+  getSpecificLayoutName: (state, getters, rootState, rootGetters): string => {
+    const user = rootGetters['auth/getCurrentUser']
+    if (!user) return 'dashboard'
+
+    const size = vuetify.framework.breakpoint.name
+    return `dashboard-${size}-${user.username}`
   }
 }

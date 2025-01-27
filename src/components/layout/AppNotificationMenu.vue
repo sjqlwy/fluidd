@@ -3,34 +3,37 @@
     v-model="menu"
     offset-y
     left
-    :max-width="(isMobile) ? 220 : 420"
+    :max-width="(isMobileViewport) ? 220 : 420"
     :close-on-content-click="false"
     :close-delay="300"
   >
-    <template #activator="{ on, attrs }">
-      <v-badge
-        :value="notificationsCounter"
-        :content="notificationsCounter"
-        offset-x="17"
-        offset-y="17"
-        bordered
-        overlap
-        :color="badgeColor"
-      >
-        <v-btn
-          v-bind="attrs"
-          fab
-          small
-          class="mx-1"
-          :color="color"
-          :elevation="0"
-          v-on="on"
-        >
-          <v-icon :class="{ 'wiggle': color === 'error'}">
-            $bell
-          </v-icon>
-        </v-btn>
-      </v-badge>
+    <template #activator="{ on: menu, attrs }">
+      <v-tooltip bottom>
+        <template #activator="{ on: tooltip }">
+          <v-badge
+            :value="notificationsCounter"
+            :content="notificationsCounter"
+            offset-x="17"
+            offset-y="17"
+            bordered
+            overlap
+            :color="badgeColor"
+          >
+            <app-btn
+              v-bind="attrs"
+              icon
+              text
+              :color="color"
+              v-on="{ ...tooltip, ...menu }"
+            >
+              <v-icon :class="{ 'wiggle': color === 'error'}">
+                $bell
+              </v-icon>
+            </app-btn>
+          </v-badge>
+        </template>
+        <span>{{ $t('app.general.tooltip.notifications') }}</span>
+      </v-tooltip>
     </template>
 
     <v-card>
@@ -46,28 +49,30 @@
           </v-list-item-content>
         </v-list-item>
 
-        <v-list-item
-          v-if="notifications.length > 0"
-          :disabled="clearableNotifications.length <= 0"
-          @click="handleClearAll"
-        >
-          <v-list-item-content>
-            <v-list-item-title>{{ $t('app.general.label.clear_all') }}</v-list-item-title>
-          </v-list-item-content>
-          <v-list-item-action class="notification-clear-all">
-            <v-icon small>
-              $close
-            </v-icon>
-          </v-list-item-action>
-        </v-list-item>
-        <v-divider v-if="notifications.length > 0" />
+        <template v-else-if="notifications.length > 0">
+          <v-list-item
+            :disabled="clearableNotifications.length <= 0"
+            @click="handleClearAll"
+          >
+            <v-list-item-content>
+              <v-list-item-title>{{ $t('app.general.label.clear_all') }}</v-list-item-title>
+            </v-list-item-content>
+            <v-list-item-icon class="notification-clear-all">
+              <v-icon dense>
+                $close
+              </v-icon>
+            </v-list-item-icon>
+          </v-list-item>
+
+          <v-divider />
+        </template>
 
         <template
           v-for="(n, i) in notifications"
         >
           <v-list-item
             :key="`notification-${n.id}`"
-            :three-line="true"
+            three-line
             :class="classes(n)"
           >
             <v-list-item-content>
@@ -78,7 +83,7 @@
                 v-html="n.description"
               />
               <v-list-item-subtitle class="notification-timestamp">
-                {{ $filters.formatDateTime(n.timestamp) }}
+                {{ $filters.formatRelativeTimeToNow(n.timestamp * 1000) }}
               </v-list-item-subtitle>
               <v-list-item-subtitle v-if="n.to">
                 <app-btn
@@ -124,14 +129,14 @@
               class="notification-clear"
               @click="handleClear(n)"
             >
-              <v-btn
+              <app-btn
                 icon
-                small
+                dense
               >
-                <v-icon small>
+                <v-icon dense>
                   $close
                 </v-icon>
-              </v-btn>
+              </app-btn>
             </v-list-item-action>
           </v-list-item>
 
@@ -146,8 +151,10 @@
 </template>
 
 <script lang="ts">
-import { AppNotification } from '@/store/notifications/types'
-import { Component, Vue } from 'vue-property-decorator'
+import type { AppNotification } from '@/store/notifications/types'
+import isSetAppBadgeSupported from '@/util/is-set-app-badge-supported'
+import { Component, Watch, Mixins } from 'vue-property-decorator'
+import BrowserMixin from '@/mixins/browser'
 import AppAnnouncementDismissMenu from './AppAnnouncementDismissMenu.vue'
 
 @Component({
@@ -155,7 +162,7 @@ import AppAnnouncementDismissMenu from './AppAnnouncementDismissMenu.vue'
     AppAnnouncementDismissMenu
   }
 })
-export default class AppNotificationMenu extends Vue {
+export default class AppNotificationMenu extends Mixins(BrowserMixin) {
   menu = false
 
   get notifications (): AppNotification[] {
@@ -167,6 +174,13 @@ export default class AppNotificationMenu extends Vue {
     return notifications.length
   }
 
+  @Watch('notificationsCounter')
+  onNotificationsCounter (value: number) {
+    if (isSetAppBadgeSupported(navigator)) {
+      navigator.setAppBadge(value)
+    }
+  }
+
   get clearableNotifications (): AppNotification[] {
     const notifications: AppNotification[] = this.$store.getters['notifications/getNotifications']
     return notifications.filter(n => n.clear)
@@ -176,8 +190,8 @@ export default class AppNotificationMenu extends Vue {
    * Color is determined by type. Pull the highest weighted type.
    */
   get color () {
-    if (this.notifications.length <= 0) return 'transparent'
-    let c = 'transparent'
+    if (this.notifications.length <= 0) return undefined
+    let c
     for (const n of this.notifications) {
       if (n.type === 'warning' && c !== 'error') c = 'warning'
       if (n.type === 'error' && c !== 'error') {
@@ -191,10 +205,6 @@ export default class AppNotificationMenu extends Vue {
   get badgeColor () {
     if (this.color === 'transparent') return 'info'
     return this.color
-  }
-
-  get isMobile () {
-    return this.$vuetify.breakpoint.mobile
   }
 
   /**
@@ -239,10 +249,10 @@ export default class AppNotificationMenu extends Vue {
 </script>
 
 <style lang="scss" scoped>
-  @import '~vuetify/src/styles/styles.sass';
+  @import 'vuetify/src/styles/styles.sass';
 
-  ::v-deep .app-notifications .v-list-item__action.notification-suffix,
-  ::v-deep .app-notifications .v-list-item__action.notification-clear {
+  :deep(.app-notifications .v-list-item__action.notification-suffix),
+  :deep(.app-notifications .v-list-item__action.notification-clear) {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -251,50 +261,62 @@ export default class AppNotificationMenu extends Vue {
     border-left: thin solid rgba(map-get($shades, 'white'), 0.12);
   }
 
-  ::v-deep .app-notifications .v-list-item__action.notification-suffix {
+  :deep(.app-notifications .v-list-item__action.notification-suffix) {
     padding: 0 0 0 12px;
   }
 
-  ::v-deep .app-notifications .v-list-item__action.notification-clear {
+  :deep(.app-notifications .v-list-item__action.notification-clear) {
     padding: 0 0 0 8px;
     margin-right: -8px;
   }
 
-::v-deep .app-notifications .v-list-item__action.notification-clear-all {
+:deep(.app-notifications .v-list-item__action.notification-clear-all) {
     margin-right: -8px;
   }
 
-  ::v-deep .app-notifications .v-list-item .v-list-item__subtitle.notification-timestamp {
+  :deep(.app-notifications .v-list-item .v-list-item__subtitle.notification-timestamp) {
     color: rgba(255, 255, 255, 0.47);
   }
 
-  ::v-deep .app-notifications .v-list-item .v-list-item__subtitle.notification-description {
+  .theme--light :deep(.app-notifications .v-list-item .v-list-item__subtitle.notification-timestamp) {
+    color: rgba(0, 0, 0, 0.47);
+  }
+
+  :deep(.app-notifications .v-list-item .v-list-item__subtitle.notification-description) {
     font-style: italic;
     color: rgba(255, 255, 255, 0.60);
   }
 
-  ::v-deep .notification-success,
-  ::v-deep .notification-info,
-  ::v-deep .notification-warning,
-  ::v-deep .notification-error,
-  ::v-deep .notification-announcement {
+  .theme--light :deep(.app-notifications .v-list-item .v-list-item__subtitle.notification-description) {
+    color: rgba(0, 0, 0, 0.60);
+  }
+
+  :deep(.notification-description) {
+    -webkit-line-clamp: 5;
+  }
+
+  :deep(.notification-success),
+  :deep(.notification-info),
+  :deep(.notification-warning),
+  :deep(.notification-error),
+  :deep(.notification-announcement) {
     border-left: solid 3px;
   }
 
-  ::v-deep .notification-success {
+  :deep(.notification-success) {
     border-color: var(--v-success-base);
   }
-  ::v-deep .notification-info,
-  ::v-deep .notification-announcement {
+  :deep(.notification-info),
+  :deep(.notification-announcement) {
     border-color: var(--v-info-base);
   }
-  ::v-deep .notification-warning {
+  :deep(.notification-warning) {
     border-color: var(--v-warning-base);
   }
-  ::v-deep .notification-error {
+  :deep(.notification-error) {
     border-color: var(--v-error-base);
   }
-  ::v-deep .notification-temp {
+  :deep(.notification-temp) {
     font-size: 1.5rem;
   }
 </style>

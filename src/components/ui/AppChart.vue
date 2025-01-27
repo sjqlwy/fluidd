@@ -4,14 +4,14 @@
       class="chart"
       :style="{ 'height': height }"
     >
-      <v-chart
+      <e-chart
         v-if="ready"
         ref="chart"
         style="overflow: initial;"
         :option="opts"
         :update-options="{ notMerge: true }"
         :init-options="{ renderer: 'svg' }"
-        :events="events"
+        autoresize
       />
     </div>
   </div>
@@ -25,32 +25,21 @@ import { merge } from 'lodash-es'
 @Component({})
 export default class AppChart extends Vue {
   @Prop({ type: Array, required: true })
-  data!: any
+  readonly data!: unknown[]
 
-  @Prop({ type: Object, default: {} })
-  options!: any
+  @Prop({ type: Object, default: () => {} })
+  readonly options!: Record<string, unknown>
 
   @Prop({ type: String, default: '100%' })
-  height!: string;
-
-  @Prop({ type: Array, default: () => [] })
-  events!: any;
+  readonly height!: string
 
   @Ref('chart')
-  chart!: ECharts
+  readonly chart!: ECharts
 
   ready = false
 
-  get isMobile () {
-    return this.$vuetify.breakpoint.mobile
-  }
-
-  get isDark () {
-    return this.$store.state.config.uiSettings.theme.isDark
-  }
-
   @Watch('data')
-  onData (data: any) {
+  onData (data?: unknown[]) {
     if (this.chart && data && data.length) {
       this.chart.setOption({
         dataset: {

@@ -7,16 +7,18 @@
       align-self="center"
       cols="5"
       class="text-body-1 py-0"
+      :class="{ 'text--disabled': !klippyReady }"
     >
       {{ led.prettyName }}
     </v-col>
     <v-col class="ml-auto py-0 text-right">
       <app-color-picker
-        :primary="primaryColor"
-        :white="whiteColor"
+        v-model="primaryColor"
+        :white.sync="whiteValue"
         :title="led.prettyName"
+        :supported-channels="supportedChannels"
+        :disabled="!klippyReady"
         dot
-        @change="handleColorChange"
       />
     </v-col>
   </v-row>
@@ -26,67 +28,112 @@
 import { Component, Mixins, Prop } from 'vue-property-decorator'
 import { IroColor } from '@irojs/iro-core'
 import StateMixin from '@/mixins/state'
+import type { Led } from '@/store/printer/types'
+import { encodeGcodeParamValue } from '@/util/gcode-helpers'
+
+type Rgbw = {
+  r: number,
+  g: number,
+  b: number,
+  w: number
+}
 
 @Component({})
 export default class OutputLed extends Mixins(StateMixin) {
   @Prop({ type: Object, required: true })
-  led!: any
+  readonly led!: Led
 
-  get primaryColor () {
-    const vals = this.convertTo(this.led.color_data[0])
-    const c = new IroColor(vals)
-    return c.hexString
+  channelLookup: Record<keyof Rgbw, string> = {
+    r: 'RED',
+    g: 'GREEN',
+    b: 'BLUE',
+    w: 'WHITE'
   }
 
-  get whiteColor () {
-    const vals = this.convertTo(this.led.color_data[0])
-    if (!vals.w) return undefined
-    const c = new IroColor({ r: vals.w, g: vals.w, b: vals.w })
-    return c.hexString
-  }
+  get supportedChannels (): string {
+    const { type, config } = this.led
 
-  get isMobile () {
-    return this.$vuetify.breakpoint.mobile
-  }
+    if ('color_order' in config) {
+      const colorOrder = Array.isArray(config.color_order)
+        ? config.color_order[0]
+        : config.color_order
 
-  handleColorChange (value: { channel: string; color: IroColor }) {
-    // Will return an update to either the primary or white channel.
-    // Gather the existing values..
-    const currentVals = this.led.color_data[0]
-    const newVals = this.convertFrom(value.color.rgb)
-
-    if (value.channel === 'primary') {
-      if (this.whiteColor) newVals.w = currentVals.W
-    } else {
-      if (this.whiteColor) newVals.w = newVals.r
-      newVals.r = currentVals.R
-      newVals.g = currentVals.G
-      newVals.b = currentVals.B
+      if (typeof colorOrder === 'string') {
+        return colorOrder
+      }
     }
 
-    const map: { [index: string]: string } = { r: 'RED', g: 'GREEN', b: 'BLUE', w: 'WHITE' }
-    let s = `SET_LED LED=${this.led.name}`
+    switch (type) {
+      case 'dotstar':
+        return 'RGB'
 
-    Object.keys(newVals).forEach((key) => {
-      s += ` ${map[key]}=${newVals[key]}`
-    })
-    this.sendGcode(s)
+      case 'led': {
+        const channels = []
+
+        if ('red_pin' in config) channels.push('R')
+        if ('green_pin' in config) channels.push('G')
+        if ('blue_pin' in config) channels.push('B')
+        if ('white_pin' in config) channels.push('W')
+
+        return channels.join('')
+      }
+    }
+
+    return 'RBGW'
   }
 
-  convertTo (o: any) {
-    const r: any = {}
-    Object.keys(o).forEach((key) => {
-      r[key.toLowerCase()] = Math.round(o[key] * 255)
-    })
-    return r
+  get color (): Rgbw {
+    const [r, g, b, w] = this.led.color_data[0]
+      .map(value => Math.round(value * 255))
+
+    return {
+      r,
+      g,
+      b,
+      w
+    }
   }
 
-  convertFrom (o: any) {
-    const r: any = {}
-    Object.keys(o).forEach((key) => {
-      r[key.toLowerCase()] = Number.parseFloat((o[key] / 255).toPrecision(2))
-    })
-    return r
+  get primaryColor (): string {
+    const color = new IroColor(this.color)
+
+    return color.hexString
+  }
+
+  set primaryColor (value: string) {
+    const { r, g, b } = new IroColor(value).rgb
+
+    const newColor: Rgbw = {
+      ...this.color,
+      r,
+      g,
+      b
+    }
+
+    this.sendColor(newColor)
+  }
+
+  get whiteValue () {
+    return this.color.w
+  }
+
+  set whiteValue (value: number) {
+    const newColor: Rgbw = {
+      ...this.color,
+      w: value
+    }
+
+    this.sendColor(newColor)
+  }
+
+  sendColor (color: Rgbw) {
+    const supportedChannels = this.supportedChannels.toLowerCase().split('') as (keyof Rgbw)[]
+
+    const colorsString = supportedChannels
+      .map(channel => ` ${this.channelLookup[channel]}=${Math.round(color[channel] * 1000 / 255) / 1000}`)
+      .join('')
+
+    this.sendGcode(`SET_LED LED=${encodeGcodeParamValue(this.led.name)}${colorsString}`)
   }
 }
 </script>

@@ -1,114 +1,85 @@
 <template>
-  <v-dialog
-    :value="value"
-    :max-width="320"
-    persistent
-    @input="$emit('input', $event)"
+  <app-dialog
+    v-model="open"
+    max-width="320"
+    :save-button-disabled="!verified"
+    :valid.sync="valid"
+    :title="$t('app.general.title.add_printer')"
+    :help-tooltip="$t('app.endpoint.tooltip.endpoint_examples')"
+    @save="addInstance"
   >
-    <v-form
-      ref="addInstanceForm"
-      v-model="valid"
-      @submit.prevent="addInstance()"
-    >
-      <v-card>
-        <v-card-title class="card-heading py-2">
-          <span class="focus--text">{{ $t('app.general.title.add_printer') }}</span>
-          <v-spacer />
-          <app-inline-help bottom>
-            <span v-html="$t('app.endpoint.tooltip.endpoint_examples')" />
-          </app-inline-help>
-        </v-card-title>
+    <v-card-text>
+      <span v-html="helpTxt" />
 
-        <v-card-text class="mt-4">
-          <span v-html="helpTxt" />
-
-          <v-text-field
-            v-model="url"
-            autofocus
-            :label="$t('app.general.label.api_url')"
-            persistent-hint
-            :hint="$t('app.endpoint.hint.add_printer')"
-            :loading="verifying"
-            :rules="[rules.required, rules.url]"
-          >
-            <template #append-outer>
-              <v-icon
-                v-if="verifying"
-                class="spin"
-                color="primary"
-              >
-                $loading
-              </v-icon>
-              <v-icon
-                v-if="!verified && !verifying"
-                color="error"
-              >
-                $cloudAlert
-              </v-icon>
-              <v-icon
-                v-if="verified && !verifying"
-                color="success"
-              >
-                $cloudCheck
-              </v-icon>
-            </template>
-          </v-text-field>
-
-          <v-alert
-            v-if="error"
-            dense
-            text
-            type="error"
-            class="mt-3 mb-2"
-            v-html="error"
-          />
-
-          <p
-            v-if="note"
-            class="mb-0"
-            v-html="note"
-          />
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer />
-          <app-btn
-            color="warning"
-            text
-            type="button"
-            @click="$emit('input', false)"
-          >
-            {{ $t('app.general.btn.cancel') }}
-          </app-btn>
-          <app-btn
+      <v-text-field
+        v-model="url"
+        type="url"
+        spellcheck="false"
+        autofocus
+        :label="$t('app.general.label.api_url')"
+        persistent-hint
+        :hint="$t('app.endpoint.hint.add_printer')"
+        :loading="verifying"
+        :rules="[
+          $rules.required,
+          customRules.url
+        ]"
+      >
+        <template #append-outer>
+          <v-icon
+            v-if="verifying"
+            class="spin"
             color="primary"
-            type="submit"
-            :disabled="!verified"
           >
-            {{ $t('app.general.btn.save') }}
-          </app-btn>
-        </v-card-actions>
-      </v-card>
-    </v-form>
-  </v-dialog>
+            $loading
+          </v-icon>
+          <v-icon
+            v-if="!verified && !verifying"
+            color="error"
+          >
+            $cloudAlert
+          </v-icon>
+          <v-icon
+            v-if="verified && !verifying"
+            color="success"
+          >
+            $cloudCheck
+          </v-icon>
+        </template>
+      </v-text-field>
+
+      <v-alert
+        v-if="error"
+        dense
+        text
+        type="error"
+        class="mt-3 mb-2"
+        v-html="error"
+      />
+
+      <p
+        v-if="note"
+        class="mb-0"
+        v-html="note"
+      />
+    </v-card-text>
+  </app-dialog>
 </template>
 
 <script lang="ts">
-import { Component, Mixins, Prop, Watch } from 'vue-property-decorator'
-import httpClient from '@/api/httpClient'
-import { Globals, Waits } from '@/globals'
-import Axios, { AxiosError, CancelTokenSource } from 'axios'
+import { Component, Mixins, VModel, Watch } from 'vue-property-decorator'
+import { Globals } from '@/globals'
+import axios from 'axios'
 import StateMixin from '@/mixins/state'
 import { Debounce } from 'vue-debounce-decorator'
-import { VForm } from '@/types/vuetify'
-import consola from 'consola'
+import { consola } from 'consola'
+import { httpClientActions } from '@/api/httpClientActions'
+import webSocketWrapper from '@/util/web-socket-wrapper'
 
 @Component({})
 export default class AddInstanceDialog extends Mixins(StateMixin) {
-  @Prop({ type: Boolean, required: true })
-  public value!: boolean
-
-  waits = Waits
+  @VModel({ type: Boolean })
+  open?: boolean
 
   valid = true
   verifying = false
@@ -116,9 +87,10 @@ export default class AddInstanceDialog extends Mixins(StateMixin) {
   error: any = null
   note: any = null
 
-  rules = {
-    required: (v: string) => !!v || this.$t('app.general.simple_form.error.required'),
-    url: (v: string) => (this.validUrl(v)) || this.$t('app.general.simple_form.error.invalid_url')
+  get customRules () {
+    return {
+      url: (v: string) => (this.validUrl(v)) || this.$t('app.general.simple_form.error.invalid_url')
+    }
   }
 
   /**
@@ -126,32 +98,17 @@ export default class AddInstanceDialog extends Mixins(StateMixin) {
    */
   validUrl (url: string) {
     try {
-      this.buildUrl(url)
+      this.$filters.getApiUrls(url)
     } catch {
       return false
     }
     return true
   }
 
-  /**
-   * Builds the URL using the browsers URL class
-   * Assume http:// if no protocol is given.
-  */
-  buildUrl (url: string) {
-    if (
-      !url.startsWith('http://') && !url.startsWith('https://')
-    ) url = `http://${url}`
-    return new URL(url)
-  }
-
   timer = 0
   url = ''
 
-  // Axios cancels.
-  cancelSource: CancelTokenSource | undefined = undefined
-
-  // Fetch cancels.
-  controller: AbortController | undefined = undefined
+  abortController?: AbortController = undefined
 
   // Watch for valid url changes.
   @Watch('url')
@@ -168,41 +125,40 @@ export default class AddInstanceDialog extends Mixins(StateMixin) {
       this.note = null
       this.verifying = true
 
-      const url = this.buildUrl(value)
+      const { apiUrl, socketUrl } = this.$filters.getApiUrls(value)
 
       // Handle cancelling axios requests.
-      if (this.cancelSource !== undefined) {
-        this.cancelSource.cancel('Cancelled due to new request.')
-      }
+      this.abortController?.abort()
 
-      this.cancelSource = Axios.CancelToken.source()
+      this.abortController = new AbortController()
+
+      const { signal } = this.abortController
 
       // Start by making a standard request. Maybe it's good?
-      const request = await httpClient.get(
-        url + 'server/info?t=' + new Date().getTime(), {
-          withAuth: false,
-          cancelToken: this.cancelSource.token
-        })
+      const request = await httpClientActions.get(`${apiUrl}/server/info?t=${Date.now()}`, {
+        withAuth: false,
+        signal
+      })
         .then(() => {
           this.verified = true
           this.verifying = false
           return 'ok'
         })
-        .catch((e: AxiosError) => {
+        .catch(e => {
           // If it failed because we cancelled, set ok and move on.
-          if (Axios.isCancel(e)) {
+          if (axios.isCancel(e)) {
             return 'ok'
-          }
+          } else if (axios.isAxiosError(e)) {
+            // If it failed because of a 401, set ok and move on.
+            if (e.response?.status === 401) {
+              this.verified = true
+              this.verifying = false
+              return 'ok'
+            }
 
-          // If it failed because of a 401, set ok and move on.
-          if (e.response?.status === 401) {
-            this.verified = true
-            this.verifying = false
-            return 'ok'
+            // If it failed with a network issue..
+            if (e.request) return e.message
           }
-
-          // If it failed with a network issue..
-          if (e.request) return e.message
 
           // Otherwise pass along the error..
           this.error = e
@@ -211,34 +167,38 @@ export default class AddInstanceDialog extends Mixins(StateMixin) {
 
       // The initial request failed with a network issue..
       if (request !== 'ok') {
-        // Handle cancelling fetch requests.
-        if (this.controller !== undefined) {
-          this.controller.abort()
-        }
-        this.controller = new AbortController()
-        const { signal } = this.controller
-
-        await fetch(url + 'server/info', { signal, mode: 'no-cors', cache: 'no-cache' })
-          .then(() => {
-            // likely a cors issue
-            this.error = this.$t('app.endpoint.error.cors_error')
-            this.note = this.$t('app.endpoint.error.cors_note', {
-              url: Globals.DOCS_MULTIPLE_INSTANCES
+        if (this.hosted) {
+          await webSocketWrapper(socketUrl, signal)
+            .then(() => {
+              // likely a cors issue, but socket worked
+              this.verified = true
             })
-          })
-          .catch(e => {
-            // external host not reachable (fetch returns 'failed to fetch')
-            consola.debug('Network Error', e, request)
-            this.error = request
-            this.note = this.$t('app.endpoint.error.cant_connect')
-          })
-          .finally(() => { this.verifying = false })
+            .catch(e => {
+              // external host not reachable (fetch returns 'failed to fetch')
+              consola.debug('Network Error', e, request)
+              this.error = request
+              this.note = this.$t('app.endpoint.error.cant_connect')
+            })
+            .finally(() => { this.verifying = false })
+        } else {
+          await fetch(`${apiUrl}/server/info`, { signal, mode: 'no-cors', cache: 'no-cache' })
+            .then(() => {
+              // likely a cors issue
+              this.error = this.$t('app.endpoint.error.cors_error')
+              this.note = this.$t('app.endpoint.error.cors_note', {
+                url: Globals.DOCS_MULTIPLE_INSTANCES
+              })
+            })
+            .catch(e => {
+              // external host not reachable (fetch returns 'failed to fetch')
+              consola.debug('Network Error', e, request)
+              this.error = request
+              this.note = this.$t('app.endpoint.error.cant_connect')
+            })
+            .finally(() => { this.verifying = false })
+        }
       }
     }
-  }
-
-  get form (): VForm {
-    return this.$refs.addInstanceForm as VForm
   }
 
   get helpTxt () {
@@ -247,13 +207,14 @@ export default class AddInstanceDialog extends Mixins(StateMixin) {
     })
   }
 
+  get hosted (): boolean {
+    return this.$store.state.config.hostConfig.hosted
+  }
+
   addInstance () {
-    if (this.valid) {
-      const url = this.buildUrl(this.url)
-      const apiConfig = this.$filters.getApiUrls(url.toString())
-      this.$emit('input', false)
-      this.$emit('resolve', apiConfig)
-    }
+    const apiConfig = this.$filters.getApiUrls(this.url)
+    this.open = false
+    this.$emit('resolve', apiConfig)
   }
 }
 </script>

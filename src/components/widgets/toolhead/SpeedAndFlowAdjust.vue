@@ -4,34 +4,36 @@
       cols="12"
       sm="6"
     >
-      <app-slider
+      <app-named-slider
         :label="$t('app.general.label.speed')"
         suffix="%"
         :value="speed"
-        :overridable="true"
+        overridable
         :reset-value="100"
-        :disabled="!klippyReady || hasWait(waits.onSetSpeed)"
-        :locked="(!klippyReady || isMobile)"
+        :disabled="!klippyReady"
+        :loading="hasWait($waits.onSetSpeed)"
+        :locked="isMobileViewport"
         :min="1"
         :max="200"
-        @change="handleSetSpeed"
+        @submit="handleSetSpeed"
       />
     </v-col>
     <v-col
       cols="12"
       sm="6"
     >
-      <app-slider
+      <app-named-slider
         :label="$t('app.general.label.flow')"
         suffix="%"
         :value="flow"
-        :overridable="true"
+        overridable
         :reset-value="100"
-        :disabled="!klippyReady || hasWait(waits.onSetFlow)"
-        :locked="(!klippyReady || isMobile)"
+        :disabled="!klippyReady"
+        :loading="hasWait($waits.onSetFlow)"
+        :locked="isMobileViewport"
         :min="1"
         :max="200"
-        @change="handleSetFlow"
+        @submit="handleSetFlow"
       />
     </v-col>
   </v-row>
@@ -40,18 +42,16 @@
 <script lang="ts">
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
-import { Waits } from '@/globals'
+import BrowserMixin from '@/mixins/browser'
 
 @Component({})
-export default class SpeedAndFlowAdjust extends Mixins(StateMixin) {
-  waits = Waits
-
+export default class SpeedAndFlowAdjust extends Mixins(StateMixin, BrowserMixin) {
   get flow () {
     return Math.round(this.$store.state.printer.printer.gcode_move.extrude_factor * 100) || 100
   }
 
   handleSetFlow (val: number) {
-    this.sendGcode('M221 S' + val, this.waits.onSetFlow)
+    this.sendGcode(`M221 S${val}`, this.$waits.onSetFlow)
   }
 
   get speed () {
@@ -59,11 +59,7 @@ export default class SpeedAndFlowAdjust extends Mixins(StateMixin) {
   }
 
   handleSetSpeed (val: number) {
-    this.sendGcode('M220 S' + val, this.waits.onSetSpeed)
-  }
-
-  get isMobile () {
-    return this.$vuetify.breakpoint.mobile
+    this.sendGcode(`M220 S${val}`, this.$waits.onSetSpeed)
   }
 }
 </script>

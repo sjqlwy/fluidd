@@ -1,8 +1,8 @@
-import { ActionTree } from 'vuex'
+import type { ActionTree } from 'vuex'
 import { SocketActions } from '@/api/socketActions'
 import { Globals } from '@/globals'
-import { ChartData, ChartState } from './types'
-import { RootState } from '../types'
+import type { ChartData, ChartState } from './types'
+import type { RootState } from '../types'
 import { isEqual } from 'lodash-es'
 
 export const actions: ActionTree<ChartState, RootState> = {
@@ -11,6 +11,10 @@ export const actions: ActionTree<ChartState, RootState> = {
    */
   async reset ({ commit }) {
     commit('setReset')
+  },
+
+  async resetChartStore ({ commit }) {
+    commit('setResetChartStore')
   },
 
   /**
@@ -54,10 +58,10 @@ export const actions: ActionTree<ChartState, RootState> = {
         if (arr && arr.length) {
           if (arr.length < retention) {
             const length = retention - arr.length
-            const lastValue = payload[originalKey][k][0]
-            payload[originalKey][k] = [...Array.from({ length }, () => lastValue), ...payload[originalKey][k]]
+            const lastValue = arr[0]
+            payload[originalKey][k] = [...Array.from({ length }, () => lastValue), ...arr]
           } else {
-            payload[originalKey][k] = payload[originalKey][k].splice(arr.length - retention)
+            payload[originalKey][k] = arr.splice(arr.length - retention)
           }
         }
       })
@@ -71,19 +75,11 @@ export const actions: ActionTree<ChartState, RootState> = {
         date
       }
       keys.forEach(key => {
-        let label = key
-        if (key.includes(' ')) label = key.split(' ')[1]
-
-        if (rootState.printer?.printer[key]) {
-          const temp = rootState.printer?.printer[key].temperature || 0
-          const target = rootState.printer?.printer[key].target || 0
-          const power = rootState.printer?.printer[key].power || 0
-          const speed = rootState.printer?.printer[key].speed || 0
-
-          r[label] = payload[key].temperatures[i] || temp
-          if ('targets' in payload[key]) r[`${label}Target`] = payload[key].targets[i] || target
-          if ('powers' in payload[key]) r[`${label}Power`] = payload[key].powers[i] || power
-          if ('speeds' in payload[key]) r[`${label}Speed`] = payload[key].speeds[i] || speed
+        if (rootState.printer.printer[key]) {
+          r[key] = payload[key].temperatures[i]
+          if ('targets' in payload[key]) r[`${key}#target`] = payload[key].targets[i]
+          if ('powers' in payload[key]) r[`${key}#power`] = payload[key].powers[i]
+          if ('speeds' in payload[key]) r[`${key}#speed`] = payload[key].speeds[i]
         }
       })
       d.push(r)
@@ -105,7 +101,7 @@ export const actions: ActionTree<ChartState, RootState> = {
     // Only change the data if they require it
     if (!isEqual(state.selectedLegends, payload)) {
       commit('setSelectedLegends', payload)
-      SocketActions.serverWrite(Globals.MOONRAKER_DB.ROOTS.charts.name + '.selectedLegends', payload)
+      SocketActions.serverWrite(Globals.MOONRAKER_DB.fluidd.ROOTS.charts.name + '.selectedLegends', payload)
     }
   }
 }

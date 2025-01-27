@@ -1,28 +1,25 @@
 <template>
   <textarea
-    class="editor v-input v-textarea theme--dark px-2"
+    v-model="content"
+    class="v-input v-textarea px-2"
+    :class="{
+      [$vuetify.theme.dark ? 'theme--dark': 'theme--light']: true,
+    }"
     :readonly="readonly"
-    :value="value"
-    :spellcheck="false"
-    @change="emitChange($event.target.value)"
+    spellcheck="false"
   />
 </template>
 
 <script lang="ts">
-import { Vue, Component, Prop } from 'vue-property-decorator'
+import { Vue, Component, Prop, VModel } from 'vue-property-decorator'
 
 @Component({})
 export default class FileEditorText extends Vue {
-  @Prop({ type: String, required: true })
-  value!: string;
+  @VModel({ type: String })
+  content?: string
 
-  @Prop({ type: Boolean, default: false })
-  readonly!: boolean;
-
-  emitChange (value: string | undefined) {
-    this.$emit('change', value)
-    this.$emit('input', value)
-  }
+  @Prop({ type: Boolean })
+  readonly readonly?: boolean
 
   mounted () {
     this.$emit('ready')
@@ -31,7 +28,7 @@ export default class FileEditorText extends Vue {
 </script>
 
 <style lang="scss" scoped>
-  .editor {
+  :deep() {
     font-family: monospace;
     font-size: 1rem;
     font-weight: 100 !important;

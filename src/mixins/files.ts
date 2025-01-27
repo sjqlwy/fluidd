@@ -1,34 +1,41 @@
-import { AppFile, FilesUpload, Thumbnail } from '@/store/files/types'
+import type { AppFile, FileUpload, AppFileThumbnail, KlipperFileMeta, FileDownload } from '@/store/files/types'
 import Vue from 'vue'
-import httpClient from '@/api/httpClient'
 import { Component } from 'vue-property-decorator'
-import { getThumb } from '@/store/helpers'
-import Axios, { AxiosRequestConfig, CancelTokenSource } from 'axios'
-import { authApi } from '@/api/auth.api'
+import type { AxiosRequestConfig, AxiosProgressEvent } from 'axios'
+import { httpClientActions } from '@/api/httpClientActions'
+import type { FileWithPath } from '@/types'
+import consola from 'consola'
+import { v4 as uuidv4 } from 'uuid'
 
 @Component
 export default class FilesMixin extends Vue {
-  // Maintains a cancel token source should we need to disable a request.
-  cancelTokenSource: CancelTokenSource | undefined = undefined
-
-  get apiUrl () {
+  get apiUrl (): string {
     return this.$store.state.config.apiUrl
   }
 
-  getThumbUrl (thumbnails: Thumbnail[], path: string, large: boolean, cachebust?: number) {
-    if (thumbnails.length) {
-      if (!cachebust) cachebust = new Date().getTime()
-      const thumb = getThumb(thumbnails, path, large)
-      if (
-        thumb &&
-        thumb.absolute_path
-      ) return `${thumb.absolute_path}?cachebust=${cachebust}`
-      if (
-        thumb &&
-        thumb.data
-      ) return thumb.data
+  get isTrustedUser (): boolean {
+    return this.$store.getters['auth/getCurrentUser']?.username === '_TRUSTED_USER_'
+  }
+
+  getThumbUrl (meta: KlipperFileMeta, root: string, path: string, large: boolean, date?: number) {
+    const thumb = this.getThumb(meta, root, path, large, date)
+
+    return thumb?.url ?? ''
+  }
+
+  getThumb (meta: KlipperFileMeta, root: string, path: string, large = true, date?: number): AppFileThumbnail | undefined {
+    if (meta.thumbnails?.length) {
+      const thumb = meta.thumbnails.reduce((a, b) => (a.size > b.size) === large ? a : b)
+
+      if (thumb.relative_path) {
+        const filepath = path ? `${root}/${path}` : root
+
+        return {
+          ...thumb,
+          url: this.createFileUrl(thumb.relative_path, filepath, date)
+        }
+      }
     }
-    return ''
   }
 
   /**
@@ -36,10 +43,10 @@ export default class FilesMixin extends Vue {
    */
   async getGcode (file: AppFile) {
     const sizeInMB = file.size / 1024 / 1024
-    let res: boolean | undefined = true
 
-    if (sizeInMB >= 100) {
-      res = await this.$confirm(
+    const result = (
+      sizeInMB < 100 ||
+      await this.$confirm(
         this.$t('app.gcode.msg.confirm', {
           filename: file.filename,
           size: this.$filters.getReadableFileSizeString(file.size)
@@ -48,15 +55,13 @@ export default class FilesMixin extends Vue {
           color: 'card-heading',
           icon: '$error'
         })
-    }
+    )
 
-    if (res) {
-      this.cancelTokenSource = Axios.CancelToken.source()
-      const path = file.path ? `${file.path}/${file.filename}` : file.filename
-      return await this.getFile(path, 'gcodes', file.size, {
+    if (result) {
+      const path = file.path ? `gcodes/${file.path}` : 'gcodes'
+      return await this.getFile<string>(file.filename, path, file.size, {
         responseType: 'text',
-        transformResponse: [v => v],
-        cancelToken: this.cancelTokenSource.token
+        transformResponse: [v => v]
       })
     }
   }
@@ -66,88 +71,117 @@ export default class FilesMixin extends Vue {
    * @param filename The filename to retrieve
    * @param path The path to the file
    */
-  async getFile (filename: string, path: string, size = 0, options?: AxiosRequestConfig) {
-    // Sort out the filepath
-    const filepath = (path) ? `${path}/${filename}` : `${filename}`
+  async getFile<T = any> (filename: string, path: string, size = 0, options?: AxiosRequestConfig) {
+    const currentDownload: FileDownload | null = this.$store.state.files.download
 
-    // Add an entry to vuex indicating we're downloading a file.
-    const startTime = performance.now()
-    this.$store.dispatch('files/updateFileDownload', {
-      // starttime: performance.now(),
-      filepath,
-      size,
-      loaded: 0,
-      percent: 0,
-      speed: 0,
-      unit: 'kB'
-    })
+    if (currentDownload) {
+      currentDownload.abortController.abort()
 
-    // Append any additional options.
-    const o = {
-      ...options,
-      onDownloadProgress: (progressEvent: ProgressEvent) => {
-        const units = ['kB', 'MB', 'GB']
-        let speed = 0
-        let i = 0
-        const delta = performance.now() - startTime
-        if (delta > 0) {
-          speed = progressEvent.loaded / delta
-          while (speed > 1024) {
-            speed /= 1024
-            i = Math.min(2, i + 1)
-          }
-        }
-
-        const payload: any = {
-          filepath,
-          loaded: progressEvent.loaded,
-          percent: Math.round(progressEvent.loaded / size * 100),
-          speed,
-          unit: units[i]
-        }
-
-        if (progressEvent.lengthComputable) {
-          size = payload.size = progressEvent.total
-        }
-
-        this.$store.dispatch('files/updateFileDownload', payload)
-      }
+      this.$store.dispatch('files/removeFileDownload', currentDownload.uid)
     }
 
-    return await httpClient.get(encodeURI(this.apiUrl + '/server/files/' + filepath + '?date=' + new Date().getTime()), o)
+    // Sort out the filepath
+    const filepath = path
+      ? `${path}/${filename}`
+      : filename
+    const uid = uuidv4()
+
+    try {
+      const abortController = new AbortController()
+
+      // Add an entry to vuex indicating we're downloading a file.
+      this.$store.dispatch('files/updateFileDownload', {
+        uid,
+        filepath,
+        size,
+        loaded: 0,
+        percent: 0,
+        speed: 0,
+        abortController
+      })
+
+      const response = await httpClientActions.serverFilesGet<T>(filepath, {
+        ...options,
+        signal: abortController.signal,
+        onDownloadProgress: (event: AxiosProgressEvent) => {
+          if (abortController.signal.aborted) {
+            return
+          }
+
+          const progress = event.progress ?? (
+            size > 0
+              ? event.loaded / size
+              : 0
+          )
+
+          const payload: any = {
+            uid,
+            loaded: event.loaded,
+            percent: Math.round(progress * 100),
+            speed: event.rate ?? 0
+          }
+
+          if (event.total) {
+            size = payload.size = event.total
+          }
+
+          this.$store.dispatch('files/updateFileDownload', payload)
+        }
+      })
+
+      abortController.abort()
+
+      return response
+    } finally {
+      this.$store.dispatch('files/removeFileDownload', uid)
+    }
   }
 
   /**
    * Will download a file by filepath via a standard browser link.
-   * Implements a oneshot.
    * @param filename The filename to retrieve.
    * @param path The path to the file.
    */
-  downloadFile (filename: string, path: string) {
+  async downloadFile (filename: string, path: string) {
     // Grab a oneshot.
-    authApi.getOneShot()
-      .then(response => response.data.result)
-      .then((token) => {
-        // Sort out the filepath and url.
-        const filepath = (path) ? `${path}/${filename}` : `${filename}`
-        const url = encodeURI(
-          this.apiUrl +
-          '/server/files/' + filepath +
-          '?token=' + token +
-          '&date=' + new Date().getTime())
+    try {
+      const url = await this.createFileUrlWithToken(filename, path)
 
-        // Create a link, handle its click - and finally remove it again.
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', filename)
-        link.setAttribute('target', '_blank')
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-      })
-      .catch(() => {
-        // Likely a 401.
-      })
+      // Create a link, handle its click - and finally remove it again.
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      link.setAttribute('target', '_blank')
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } catch {
+      // Likely a 401.
+    }
+  }
+
+  /**
+   * Creates a url for a file by filepath.
+   * Implements a oneshot.
+   * @param filename The filename.
+   * @param path The path to the file.
+   * @returns The url for the requested file
+   */
+  createFileUrl (filename: string, path: string, date?: number) {
+    const filepath = (path) ? `${path}/${filename}` : `${filename}`
+
+    const encodedFilepath = filepath
+      .replace(/[^/]+/g, match => encodeURIComponent(match))
+
+    return `${this.apiUrl}/server/files/${encodedFilepath}?date=${date || Date.now()}`
+  }
+
+  async createFileUrlWithToken (filename: string, path: string, date?: number) {
+    const url = this.createFileUrl(filename, path, date)
+
+    return this.isTrustedUser
+      ? url
+      : `${url}&token=${(await httpClientActions.accessOneshotTokenGet()).data.result}`
   }
 
   /**
@@ -158,112 +192,114 @@ export default class FilesMixin extends Vue {
    * @param andPrint If we should attempt to print this file or not.
    * @param options Axios request options
    */
-  async uploadFile (file: File, path: string, root: string, andPrint: boolean, options?: AxiosRequestConfig) {
-    const formData = new FormData()
-    // let filename = file.name.replace(' ', '_')
-    let filepath = `${path}/${file.name}`
-    filepath = (filepath.startsWith('/'))
-      ? filepath
-      : '/' + filepath
-    formData.append('file', file, filepath)
-    formData.append('root', root)
-    if (andPrint) {
-      formData.append('print', 'true')
-    }
+  async uploadFile (file: File, path: string, root: string, andPrint: boolean, uid?: string, options?: AxiosRequestConfig) {
+    const filepath = path
+      ? `${path}/${file.name}`
+      : file.name
+    uid = uid || uuidv4()
 
-    const startTime = performance.now()
-    this.$store.dispatch('files/updateFileUpload', {
-      filepath,
-      size: file.size,
-      loaded: 0,
-      percent: 0,
-      speed: 0,
-      unit: 'kB',
-      cancelled: false
-    })
+    try {
+      const abortController = new AbortController()
 
-    return httpClient
-      .post(
-        this.apiUrl + '/server/files/upload',
-        formData, {
-          ...options,
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          },
-          onUploadProgress: (progressEvent: ProgressEvent) => {
-            const units = ['kB', 'MB', 'GB']
-            let speed = 0
-            let i = 0
-            const delta = performance.now() - startTime
-            if (delta > 0) {
-              speed = progressEvent.loaded / delta
-              while (speed > 1024) {
-                speed /= 1024
-                i = Math.min(2, i + 1)
-              }
-            }
-            this.$store.dispatch('files/updateFileUpload', {
-              filepath,
-              loaded: progressEvent.loaded,
-              percent: Math.round(progressEvent.loaded / progressEvent.total * 100),
-              speed,
-              unit: units[i]
-            })
-          }
-        }
-      )
-      .then((response) => {
-        return response
-      })
-      .catch(e => {
-        return e
-      })
-      .finally(() => {
-        this.$store.dispatch('files/removeFileUpload', filepath)
-      })
-  }
-
-  // Upload some files.
-  async uploadFiles (files: FileList | File[], path: string, root: string, andPrint: boolean) {
-    // For each file, adds the associated state.
-    for (const file of files) {
-      let filepath = `${path}/${file.name}`
-      filepath = (filepath.startsWith('/'))
-        ? filepath
-        : '/' + filepath
       this.$store.dispatch('files/updateFileUpload', {
+        uid,
         filepath,
         size: file.size,
         loaded: 0,
         percent: 0,
         speed: 0,
-        unit: 'kB',
-        cancelled: false
+        cancelled: false,
+        complete: false,
+        abortController
+      } satisfies FileUpload)
+
+      const response = await httpClientActions.serverFilesUploadPost(file, path, root, andPrint, {
+        ...options,
+        signal: abortController.signal,
+        onUploadProgress: (event: AxiosProgressEvent) => {
+          if (abortController.signal.aborted) {
+            return
+          }
+
+          this.$store.dispatch('files/updateFileUpload', {
+            uid,
+            loaded: event.loaded,
+            percent: event.progress ? Math.round(event.progress * 100) : 0,
+            speed: event.rate ?? 0
+          })
+        }
       })
+
+      abortController.abort()
+
+      return response
+    } finally {
+      this.$store.dispatch('files/removeFileUpload', uid)
     }
+  }
+
+  getFullPathAndFile (rootPath: string, file: File | FileWithPath): [string, File] {
+    if ('path' in file) {
+      return [
+        [rootPath, file.path]
+          .filter(path => !!path)
+          .join('/'),
+        file.file
+      ]
+    } else {
+      return [
+        rootPath,
+        file
+      ]
+    }
+  }
+
+  // Upload some files.
+  async uploadFiles (files: FileList | File[] | FileWithPath[], path: string, root: string, andPrint: boolean) {
+    // For each file, adds the associated state.
+    const fileUploads = [...files]
+      .map(file => {
+        const uid = uuidv4()
+        const [fullPath, fileObject] = this.getFullPathAndFile(path, file)
+
+        const filepath = fullPath
+          ? `${fullPath}/${fileObject.name}`
+          : fileObject.name
+
+        this.$store.dispatch('files/updateFileUpload', {
+          uid,
+          filepath,
+          size: fileObject.size,
+          loaded: 0,
+          percent: 0,
+          speed: 0,
+          cancelled: false,
+          complete: false
+        })
+
+        return {
+          uid,
+          file
+        }
+      })
 
     // Async uploads cause issues in moonraker / klipper.
     // So instead, upload sequentially waiting for moonraker to finish
     // processing of each file.
-    if (files.length > 1) andPrint = false
-    for (const file of files) {
-      let filepath = `${path}/${file.name}`
-      filepath = (filepath.startsWith('/'))
-        ? filepath
-        : '/' + filepath
-      const fileState = this.$store.state.files.uploads.find((u: FilesUpload) => u.filepath === filepath)
-      // consola.error('about to process...', fileState)
-      if (!fileState.cancelled) {
+    if (fileUploads.length > 1) andPrint = false
+    for (const fileUpload of fileUploads) {
+      const [fullPath, fileObject] = this.getFullPathAndFile(path, fileUpload.file)
+
+      const fileState = this.$store.state.files.uploads.find((u: FileUpload) => u.uid === fileUpload.uid)
+
+      if (fileState && !fileState?.cancelled) {
         try {
-          this.cancelTokenSource = Axios.CancelToken.source()
-          await this.uploadFile(file, path, root, andPrint, {
-            cancelToken: this.cancelTokenSource.token
-          })
-        } catch (e) {
-          return e
+          await this.uploadFile(fileObject, fullPath, root, andPrint, fileUpload.uid)
+        } catch (error: unknown) {
+          consola.error('[FileUpload] file', error)
         }
       } else {
-        this.$store.dispatch('files/removeFileUpload', filepath)
+        this.$store.dispatch('files/removeFileUpload', fileUpload.uid)
       }
     }
   }

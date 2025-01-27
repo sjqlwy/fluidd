@@ -6,40 +6,42 @@
   >
     <template #collapse-button>
       <app-btn
-        color=""
-        fab
-        x-small
-        text
+        :loading="hasWait($waits.onQueryEndstops) || hasWait($waits.onQueryProbe)"
+        icon
         @click="queryEndstops"
       >
-        <v-icon>$refresh</v-icon>
+        <v-icon dense>
+          $refresh
+        </v-icon>
       </app-btn>
     </template>
-    <v-card-text v-if="hasEndStops">
-      <v-layout
-        v-for="(item, name) in endStops"
-        :key="name"
-        align-center
-        justify-start
-        class="py-1"
-      >
-        <span class="focus--text mr-5">{{ name }}</span>
-        <v-chip
-          :color="(item === 'open') ? 'secondary' : 'warning'"
-          class="ml-2"
-          small
-          label
+    <v-simple-table v-if="hasEndstops">
+      <tbody>
+        <tr
+          v-for="item in endstopsAndProbes"
+          :key="item.name"
         >
-          <v-icon
-            small
-            left
-          >
-            {{ (item === 'open') ? '$blankCircle' : '$markedCircle' }}
-          </v-icon>
-          {{ $t('app.endstop.label.' + item.toLowerCase()) }}
-        </v-chip>
-      </v-layout>
-    </v-card-text>
+          <td>
+            <span class="focus--text">{{ item.name }}</span>
+          </td>
+          <td>
+            <v-chip
+              :color="(item.state === 'open') ? 'secondary' : 'warning'"
+              small
+              label
+            >
+              <v-icon
+                small
+                left
+              >
+                {{ (item.state === 'open') ? '$blankCircle' : '$markedCircle' }}
+              </v-icon>
+              {{ $t('app.endstop.label.' + item.state.toLowerCase()) }}
+            </v-chip>
+          </td>
+        </tr>
+      </tbody>
+    </v-simple-table>
   </collapsable-card>
 </template>
 
@@ -47,22 +49,45 @@
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 import { SocketActions } from '@/api/socketActions'
+import type { Endstop, Probe } from '@/store/printer/types'
 
 @Component({
   components: {}
 })
 export default class EndStopsCard extends Mixins(StateMixin) {
-  get endStops () {
-    return this.$store.getters['printer/getEndstops']
+  get endstops (): Endstop[] {
+    return this.$store.getters['printer/getEndstops'] as Endstop[]
+  }
+
+  get probe (): Probe | undefined {
+    return this.$store.getters['printer/getProbe'] as Probe | undefined
+  }
+
+  get endstopsAndProbes () {
+    const endstopsAndProbes = [...this.endstops]
+    const probe = this.probe
+
+    if (probe !== undefined) {
+      endstopsAndProbes.push({
+        name: 'Probe',
+        state: probe.last_query ? 'triggered' : 'open'
+      })
+    }
+
+    return endstopsAndProbes
   }
 
   // Default state is an empty object.
-  get hasEndStops () {
-    return (Object.keys(this.endStops).length > 0)
+  get hasEndstops () {
+    return this.endstops.length > 0
   }
 
   queryEndstops () {
     SocketActions.printerQueryEndstops()
+
+    if (this.probe !== undefined) {
+      this.sendGcode('QUERY_PROBE', this.$waits.onQueryProbe)
+    }
   }
 
   destroyed () {

@@ -65,7 +65,7 @@
       class="ml-1"
       @click="$emit('on-recover')"
     >
-      Recover
+      {{ $t('app.general.btn.recover') }}
     </app-btn>
   </div>
 </template>
@@ -76,19 +76,19 @@ import { Component, Prop } from 'vue-property-decorator'
 
 @Component({})
 export default class VersionStatus extends Vue {
-  @Prop({ type: Boolean, default: false })
-  hasUpdate!: boolean
+  @Prop({ type: Boolean })
+  readonly hasUpdate?: boolean
 
-  @Prop({ type: Boolean, default: false })
-  disabled!: boolean
+  @Prop({ type: Boolean })
+  readonly disabled?: boolean
 
-  @Prop({ type: Boolean, default: false })
-  loading!: boolean
+  @Prop({ type: Boolean })
+  readonly loading?: boolean
 
-  @Prop({ type: Boolean, default: false })
-  dirty!: boolean
+  @Prop({ type: Boolean })
+  readonly dirty?: boolean
 
   @Prop({ type: Boolean, default: true })
-  valid!: boolean
+  readonly valid?: boolean
 }
 </script>

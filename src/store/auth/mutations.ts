@@ -1,7 +1,7 @@
-import { MutationTree } from 'vuex'
-import { defaultState } from './'
-import { AuthState } from './types'
-import jwtDecode from 'jwt-decode'
+import type { MutationTree } from 'vuex'
+import { defaultState } from './state'
+import type { AuthState } from './types'
+import { jwtDecode } from 'jwt-decode'
 
 export const mutations: MutationTree<AuthState> = {
   /**
@@ -32,7 +32,7 @@ export const mutations: MutationTree<AuthState> = {
   },
 
   setAddUser (state, user) {
-    state.users.push(user)
+    state.users.push({ source: 'moonraker', ...user })
   },
 
   setRemoveUser (state, user) {

@@ -1,22 +1,32 @@
 <template>
-  <v-row :dense="$vuetify.breakpoint.smAndDown">
+  <v-row
+    v-if="klippyReady"
+    :dense="$vuetify.breakpoint.smAndDown"
+  >
     <v-col
-      v-if="supportsBedMesh && klippyReady"
+      v-if="supportsBedMesh"
       cols="12"
       md="8"
     >
-      <bed-mesh />
+      <bed-mesh-card fullscreen />
     </v-col>
     <v-col
       cols="12"
       md="4"
     >
       <bed-mesh-controls
-        v-if="supportsBedMesh && klippyReady"
+        v-if="supportsBedMesh"
         class="mb-2 mb-sm-4"
       />
       <end-stops-card class="mb-2 mb-sm-4" />
-      <runout-sensors-card v-if="supportsRunoutSensors" />
+      <runout-sensors-card
+        v-if="supportsRunoutSensors"
+        fullscreen
+      />
+      <beacon-card
+        v-if="supportsBeacon"
+        fullscreen
+      />
     </v-col>
   </v-row>
 </template>
@@ -25,17 +35,19 @@
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 
-import BedMesh from '@/components/widgets/bedmesh/BedMesh.vue'
+import BedMeshCard from '@/components/widgets/bedmesh/BedMeshCard.vue'
 import BedMeshControls from '@/components/widgets/bedmesh/BedMeshControls.vue'
 import EndStopsCard from '@/components/widgets/endstops/EndStopsCard.vue'
 import RunoutSensorsCard from '@/components/widgets/runout-sensors/RunoutSensorsCard.vue'
+import BeaconCard from '@/components/widgets/beacon/BeaconCard.vue'
 
 @Component({
   components: {
-    BedMesh,
+    BedMeshCard,
     BedMeshControls,
     EndStopsCard,
-    RunoutSensorsCard
+    RunoutSensorsCard,
+    BeaconCard
   }
 })
 export default class Tune extends Mixins(StateMixin) {
@@ -50,6 +62,10 @@ export default class Tune extends Mixins(StateMixin) {
   get supportsEndstops () {
     const endStops = this.$store.getters['printer/getEndstops']
     return (Object.keys(endStops).length > 0)
+  }
+
+  get supportsBeacon () {
+    return this.$store.getters['printer/getSupportsBeacon']
   }
 }
 </script>

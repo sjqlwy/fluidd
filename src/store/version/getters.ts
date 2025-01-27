@@ -1,9 +1,7 @@
-import { GetterTree } from 'vuex'
-import { isOfType } from '@/store/helpers'
-import { ArtifactVersion, HashVersion, OSPackage, VersionState } from './types'
-import { RootState } from '../types'
+import type { GetterTree } from 'vuex'
+import type { CommitItem, VersionState } from './types'
+import type { RootState } from '../types'
 import { valid, gt } from 'semver'
-import _Vue from 'vue'
 
 export const getters: GetterTree<VersionState, RootState> = {
   /**
@@ -16,12 +14,8 @@ export const getters: GetterTree<VersionState, RootState> = {
         r.key = k
         return r
       })
+      .sort((a, b) => a.key.localeCompare(b.key))
 
-    o.sort((a, b) => {
-      const name1 = a.key.toLowerCase()
-      const name2 = b.key.toLowerCase()
-      return (name1 < name2) ? -1 : (name1 > name2) ? 1 : 0
-    })
     return o
   },
 
@@ -29,44 +23,37 @@ export const getters: GetterTree<VersionState, RootState> = {
    * Returns an object indicating if any component (but system) has an update.
    */
   hasUpdates: (state, getters, rootState) => {
-    const enableNotifications = rootState.config?.uiSettings.general.enableVersionNotifications
-    let r = false
-    for (const key in state.version_info) {
-      if (!r) {
-        if (
-          key !== 'system' && // don't check system updates..
-          enableNotifications
-        ) {
-          r = getters.hasUpdate(key)
-        }
-      } else {
-        break
-      }
-    }
-    return r
+    const enableNotifications = rootState.config.uiSettings.general.enableVersionNotifications
+
+    return (
+      enableNotifications &&
+      Object.keys(state.version_info)
+        .filter(component => component !== 'system')
+        .some(getters.hasUpdate)
+    )
   },
 
   /**
    * Returns a boolean indicating if a given component has an update.
    */
   hasUpdate: (state) => (component: string): boolean => {
-    if (state.version_info[component] && isOfType<ArtifactVersion>(state.version_info[component], 'name')) {
-      const o = state.version_info[component] as ArtifactVersion
-      const version = valid(o.version)
-      const remoteVersion = valid(o.remote_version)
+    const componentVersionInfo = state.version_info[component]
+
+    if ('name' in componentVersionInfo) {
+      const version = valid(componentVersionInfo.version)
+      const remoteVersion = valid(componentVersionInfo.remote_version)
       if (version && remoteVersion) {
-        return (gt(remoteVersion, version))
+        return gt(remoteVersion, version)
       }
-      return false
+    } else if ('package_count' in componentVersionInfo) {
+      return componentVersionInfo.package_count > 0
     }
 
-    if (state.version_info[component] && isOfType<OSPackage>(state.version_info[component], 'package_count')) {
-      const o = state.version_info[component] as OSPackage
-      return (o.package_count > 0)
+    if ('current_hash' in componentVersionInfo && 'remote_hash' in componentVersionInfo) {
+      return componentVersionInfo.current_hash !== componentVersionInfo.remote_hash
     }
 
-    const o = state.version_info[component] as HashVersion
-    return (o.current_hash !== o.remote_hash)
+    return false
   },
 
   getResponses: (state) => {
@@ -78,18 +65,21 @@ export const getters: GetterTree<VersionState, RootState> = {
    */
   getCommitHistory: (state) => (component: string) => {
     // This is only relevant for certain types.
-    if (state.version_info[component] && isOfType<HashVersion>(state.version_info[component], 'git_messages')) {
-      const c = state.version_info[component] as HashVersion
-      const result = [...c.commits_behind]
-        .reduce((result: any, a) => {
-          const d = _Vue.$dayjs(+a.date * 1000).hour(6).minute(0).second(0).unix() * 1000
-          result[d] = result[d] || []
-          result[d].push({
-            ...a,
-            date: +a.date * 1000
-          })
-          return result
-        }, Object.create(null))
+    const componentVersionInfo = state.version_info[component]
+    if (componentVersionInfo && 'git_messages' in componentVersionInfo) {
+      const result = [...componentVersionInfo.commits_behind]
+        .reduce((groups, commitItem) => {
+          const dateAndTime = new Date(+commitItem.date * 1000)
+          const dateOnly = +(new Date(dateAndTime.getFullYear(), dateAndTime.getMonth(), dateAndTime.getDate()))
+
+          if (dateOnly in groups) {
+            groups[dateOnly].push(commitItem)
+          } else {
+            groups[dateOnly] = [commitItem]
+          }
+
+          return groups
+        }, {} as Record<number, CommitItem[]>)
       return {
         keys: Object
           .keys(result)

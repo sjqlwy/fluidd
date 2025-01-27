@@ -1,13 +1,12 @@
 <template>
   <v-dialog
-    :value="value"
+    v-model="open"
     :loading="loading"
     hide-overlay
     fullscreen
     persistent
     transition="dialog-bottom-transition"
     content-class="config-editor-overlay"
-    @input="$emit('input', $event)"
   >
     <v-card
       d-flex
@@ -23,26 +22,54 @@
           v-if="!$vuetify.breakpoint.smAndDown"
           icon
           :disabled="!ready"
-          color=""
           @click="emitClose()"
         >
           <v-icon>$close</v-icon>
         </app-btn>
-        <v-toolbar-title>{{ filename }}</v-toolbar-title>
+        <v-toolbar-title>
+          {{ filename }}
+          <v-icon
+            v-if="readonly"
+            small
+            class="ml-1"
+          >
+            $lock
+          </v-icon>
+          <v-icon
+            v-else-if="updatedContent !== lastSavedContent"
+            small
+            class="ml-1"
+          >
+            $circle
+          </v-icon>
+        </v-toolbar-title>
+
         <v-spacer />
+
         <v-toolbar-items>
           <app-btn
-            v-if="!printerPrinting"
-            target="_blank"
-            @click="handleKeyboardShortcuts"
+            v-if="!$vuetify.breakpoint.smAndDown"
+            @click="peripheralsDialogOpen = true"
+          >
+            <v-icon
+              small
+              left
+            >
+              $devices
+            </v-icon>
+            <span>{{ $t('app.file_system.title.devices') }}</span>
+          </app-btn>
+          <app-btn
+            v-if="!useTextOnlyEditor"
+            @click="handleCommandPalette"
           >
             <v-icon
               small
               :left="!$vuetify.breakpoint.smAndDown"
             >
-              $keyboard
+              $consoleLine
             </v-icon>
-            <span v-if="!$vuetify.breakpoint.smAndDown">{{ $t('app.file_system.title.keyboard_shortcuts') }}</span>
+            <span v-if="!$vuetify.breakpoint.smAndDown">{{ $t('app.file_system.title.command_palette') }}</span>
           </app-btn>
           <app-btn
             v-if="!printerPrinting && configMap.link"
@@ -98,34 +125,41 @@
       </v-toolbar>
 
       <file-editor
-        v-if="contents !== undefined && !isMobile"
+        v-if="contents !== undefined && !useTextOnlyEditor"
+        ref="editor"
         v-model="updatedContent"
+        :path="path"
         :filename="filename"
         :readonly="readonly"
+        :code-lens="codeLens"
         @ready="editorReady = true"
+        @save="emitSave(false)"
+        @emergency-stop="emergencyStop"
       />
 
       <file-editor-text-only
-        v-if="contents !== undefined && isMobile"
+        v-if="contents !== undefined && useTextOnlyEditor"
         v-model="updatedContent"
         :filename="filename"
         :readonly="readonly"
         @ready="editorReady = true"
       />
 
-      <keyboard-shortcuts-dialog
-        v-model="shortcutsDialog"
+      <peripherals-dialog
+        v-if="peripheralsDialogOpen"
+        v-model="peripheralsDialogOpen"
       />
     </v-card>
   </v-dialog>
 </template>
 
 <script lang="ts">
-import { Component, Mixins, Prop } from 'vue-property-decorator'
+import { Component, Mixins, Prop, Ref, VModel, Watch } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
+import BrowserMixin from '@/mixins/browser'
 import FileEditor from './FileEditor.vue'
 import FileEditorTextOnly from './FileEditorTextOnly.vue'
-import isMobile from '@/util/is-mobile'
+import isWebAssemblySupported from '@/util/is-web-assembly-supported'
 
 @Component({
   components: {
@@ -133,29 +167,35 @@ import isMobile from '@/util/is-mobile'
     FileEditorTextOnly
   }
 })
-export default class FileEditorDialog extends Mixins(StateMixin) {
-  @Prop({ type: Boolean, required: true })
-  public value!: boolean
+export default class FileEditorDialog extends Mixins(StateMixin, BrowserMixin) {
+  @VModel({ type: Boolean })
+  open?: boolean
 
   @Prop({ type: String, required: true })
-  root!: string
+  readonly root!: string
 
   @Prop({ type: String, required: true })
-  public filename!: string;
+  readonly path!: string
 
   @Prop({ type: String, required: true })
-  public contents!: string
+  readonly filename!: string
 
-  @Prop({ type: Boolean, default: false })
-  public loading!: boolean
+  @Prop({ type: String, required: true })
+  readonly contents!: string
 
-  @Prop({ type: Boolean, default: false })
-  public readonly!: boolean
+  @Prop({ type: Boolean })
+  readonly loading?: boolean
 
-  updatedContent = this.contents
-  lastSavedContent = this.updatedContent
+  @Prop({ type: Boolean })
+  readonly readonly?: boolean
+
+  @Ref('editor')
+  readonly editor?: FileEditor
+
+  updatedContent: string | null = null
+  lastSavedContent: string | null = null
   editorReady = false
-  shortcutsDialog = false
+  peripheralsDialogOpen = false
 
   get ready () {
     return (
@@ -165,33 +205,39 @@ export default class FileEditorDialog extends Mixins(StateMixin) {
     )
   }
 
-  get isMobile () {
-    return isMobile()
+  @Watch('ready')
+  onReady (value: boolean) {
+    if (value) {
+      this.editor?.focus()
+    }
+  }
+
+  get isWebAssemblySupported () {
+    return isWebAssemblySupported()
+  }
+
+  get useTextOnlyEditor () {
+    return this.isMobileUserAgent || !this.isWebAssemblySupported
   }
 
   get isUploading (): boolean {
     return this.$store.state.files.uploads.length > 0
   }
 
-  get rootProperties () {
-    return this.$store.getters['files/getRootProperties'](this.root)
-  }
-
   get configMap () {
     return this.$store.getters['server/getConfigMapByFilename'](this.filename)
   }
 
-  // get configRefUrl () {
-  //   if (this.filename && this.filename.includes('moonraker.conf')) {
-  //     return Globals.DOCS_MOONRAKER_CONFIG_REF
-  //   } else {
-  //     return Globals.DOCS_KLIPPER_CONFIG_REF
-  //   }
-  // }
+  get codeLens (): boolean {
+    return this.$store.state.config.uiSettings.editor.codeLens
+  }
+
+  created () {
+    this.updatedContent = this.contents
+    this.lastSavedContent = this.contents
+  }
 
   mounted () {
-    this.updatedContent = this.contents
-    this.lastSavedContent = this.updatedContent
     window.addEventListener('beforeunload', this.handleBeforeUnload)
   }
 
@@ -200,28 +246,32 @@ export default class FileEditorDialog extends Mixins(StateMixin) {
   }
 
   get showDirtyEditorWarning () {
-    return this.$store.state.config.uiSettings.editor.confirmDirtyEditorClose && this.updatedContent !== this.lastSavedContent
+    const confirmDirtyEditorClose: boolean = this.$store.state.config.uiSettings.editor.confirmDirtyEditorClose
+
+    return (
+      confirmDirtyEditorClose &&
+      this.updatedContent !== this.lastSavedContent
+    )
   }
 
   async emitClose () {
-    if (this.showDirtyEditorWarning) {
-      const result = await this.$confirm(
+    const result = (
+      !this.showDirtyEditorWarning ||
+      await this.$confirm(
         this.$tc('app.general.simple_form.msg.unsaved_changes'),
         { title: this.$tc('app.general.label.unsaved_changes'), color: 'card-heading', icon: '$error' }
       )
+    )
 
-      if (!result) {
-        return
-      }
+    if (result) {
+      this.open = false
     }
-
-    this.$emit('input', false)
   }
 
-  handleBeforeUnload (e: Event) {
+  handleBeforeUnload (event: Event) {
     if (this.showDirtyEditorWarning) {
-      e.preventDefault() // show browser-native "Leave site?" modal
-      return ((e || window.event).returnValue = true) // fallback
+      event.preventDefault() // show browser-native "Leave site?" modal
+      return ((event || window.event).returnValue = true) // fallback
     }
   }
 
@@ -229,7 +279,7 @@ export default class FileEditorDialog extends Mixins(StateMixin) {
     if (this.editorReady) {
       if (this.configMap.serviceSupported && restart) {
         this.$emit('save', this.updatedContent, this.configMap.service)
-        this.$emit('input', false)
+        this.open = false
       } else {
         this.$emit('save', this.updatedContent)
       }
@@ -238,8 +288,8 @@ export default class FileEditorDialog extends Mixins(StateMixin) {
     }
   }
 
-  handleKeyboardShortcuts () {
-    this.shortcutsDialog = true
+  handleCommandPalette () {
+    this.editor?.showCommandPalette()
   }
 }
 </script>

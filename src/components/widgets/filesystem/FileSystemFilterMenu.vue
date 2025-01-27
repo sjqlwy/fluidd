@@ -6,95 +6,128 @@
     transition="slide-y-transition"
     :close-on-content-click="false"
   >
-    <template #activator="{ on, attrs }">
-      <v-badge
-        bordered
-        color="warning"
-        dot
-        overlap
-        :value="model.length > 0"
-        :offset-y="15"
-        :offset-x="15"
-      >
-        <v-btn
-          :disabled="disabled"
-          fab
-          small
-          text
-          v-bind="attrs"
-          v-on="on"
-        >
-          <v-icon>
-            $filter
-          </v-icon>
-        </v-btn>
-      </v-badge>
+    <template #activator="{ on: menu, attrs }">
+      <v-tooltip bottom>
+        <template #activator="{ on: tooltip }">
+          <v-badge
+            bordered
+            color="warning"
+            dot
+            overlap
+            :value="selectedFilterTypes.length > 0"
+            :offset-y="15"
+            :offset-x="15"
+          >
+            <app-btn
+              :disabled="disabled"
+              icon
+              text
+              v-bind="attrs"
+              v-on="{... menu, ...tooltip}"
+            >
+              <v-icon>
+                $filter
+              </v-icon>
+            </app-btn>
+          </v-badge>
+        </template>
+        <span>{{ $t('app.general.btn.filter') }}</span>
+      </v-tooltip>
     </template>
 
-    <v-list
-      flat
-      two-line
-    >
+    <v-list dense>
       <v-list-item-group
-        v-model="model"
+        v-model="selectedFilterTypes"
         multiple
-        active-class=""
       >
-        <template v-for="(filter, i) in filters">
-          <v-list-item
-            :key="`filter-${i}`"
-            :disabled="disabled"
-            :value="filter"
-          >
-            <template #default="{ active }">
-              <v-list-item-action>
-                <v-checkbox :input-value="active" />
-              </v-list-item-action>
-              <v-list-item-content>
-                <v-list-item-title>
-                  {{ filter.text }}
-                </v-list-item-title>
-                <v-list-item-subtitle>
-                  {{ filter.desc }}
-                </v-list-item-subtitle>
-              </v-list-item-content>
-            </template>
-          </v-list-item>
-        </template>
+        <v-list-item
+          v-for="filter in filters"
+          :key="`filter-${filter.type}`"
+          :value="filter.type"
+        >
+          <template #default="{ active }">
+            <v-list-item-action class="my-0">
+              <v-checkbox :input-value="active" />
+            </v-list-item-action>
+            <v-list-item-content>
+              <v-list-item-title>
+                {{ filter.text }}
+              </v-list-item-title>
+              <v-list-item-subtitle v-if="filter.desc !== undefined">
+                {{ filter.desc }}
+              </v-list-item-subtitle>
+            </v-list-item-content>
+          </template>
+        </v-list-item>
       </v-list-item-group>
     </v-list>
   </v-menu>
 </template>
 
 <script lang="ts">
-import { FileFilter } from '@/store/files/types'
-import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
+import type { FileFilterType, RootProperties } from '@/store/files/types'
+import { Component, Vue, Prop } from 'vue-property-decorator'
+
+type FileFilter = {
+  type: FileFilterType,
+  text: string,
+  desc?: string,
+}
 
 @Component({})
 export default class FileSystemFilterMenu extends Vue {
   @Prop({ type: String, required: true })
-  root!: string
+  readonly root!: string
 
-  // If the controls are disabled or not.
-  @Prop({ type: Boolean, default: false })
-  disabled!: boolean
+  @Prop({ type: Boolean })
+  readonly disabled?: boolean
 
-  model = []
-  filters: FileFilter[] = [
-    {
-      value: 'print_start_time',
-      text: this.$tc('app.file_system.filters.label.print_start_time'),
-      desc: this.$tc('app.file_system.filters.label.print_start_time_desc')
-    }
-  ]
-
-  get readonly () {
-    return this.$store.getters['files/getRootProperties'](this.root).readonly
+  get rootProperties (): RootProperties {
+    return this.$store.getters['files/getRootProperties'](this.root) as RootProperties
   }
 
-  @Watch('model')
-  onFiltersChange (model: any) {
-    this.$emit('change', model)
+  get filters (): FileFilter[] {
+    return this.rootProperties.filterTypes
+      .filter(filterType => {
+        switch (filterType) {
+          case 'print_start_time':
+            return this.supportsHistoryComponent
+
+          default:
+            return true
+        }
+      })
+      .map((filterType): FileFilter => ({
+        type: filterType,
+        text: this.$tc(`app.file_system.filters.label.${filterType}`)
+      }))
+  }
+
+  get selectedFilterTypes (): FileFilterType[] {
+    const selectedFilters: FileFilterType[] = this.$store.state.config.uiSettings.fileSystem.activeFilters[this.root] ?? []
+    const filters = new Set(this.filters
+      .map(filter => filter.type))
+
+    return selectedFilters
+      .filter(selectedFilter => filters.has(selectedFilter))
+  }
+
+  set selectedFilterTypes (value: FileFilterType[]) {
+    this.$emit('change', value)
+  }
+
+  get supportsHistoryComponent () {
+    return this.$store.getters['server/componentSupport']('history')
   }
 }
 </script>
+
+<style lang="scss" scoped>
+:deep(.v-list-item--active::before) {
+  opacity: 0;
+}
+:deep(.v-list-item--active:hover::before) {
+  opacity: 0.08;
+}
+
+</style>

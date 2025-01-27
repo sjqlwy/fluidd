@@ -1,32 +1,10 @@
-import { Module } from 'vuex'
+import type { Module } from 'vuex'
+import { state } from './state'
 import { getters } from './getters'
 import { actions } from './actions'
 import { mutations } from './mutations'
-import { GcodePreviewState } from './types'
-import { RootState } from '../types'
-
-/**
- * Maintains the state of the console
- */
-export const defaultState = (): GcodePreviewState => {
-  return {
-    moves: [],
-    file: undefined,
-    parserProgress: 0,
-    parserWorker: null,
-
-    viewer: {
-      showNextLayer: false,
-      showPreviousLayer: false,
-      showMoves: true,
-      showExtrusions: true,
-      showRetractions: true,
-      followProgress: false
-    }
-  }
-}
-
-export const state = defaultState()
+import type { GcodePreviewState } from './types'
+import type { RootState } from '../types'
 
 const namespaced = true
 

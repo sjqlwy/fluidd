@@ -19,7 +19,6 @@
           single-line
           hide-details="auto"
           :items="cameras"
-          :value="camera"
           :disabled="cameraBlocked"
         />
       </app-setting>
@@ -36,7 +35,6 @@
           single-line
           hide-details="auto"
           :items="supportedModes"
-          :value="mode"
           :disabled="modeBlocked"
         />
       </app-setting>
@@ -53,9 +51,13 @@
         <v-text-field
           ref="delayCompElement"
           :value="delayComp"
-          :rules="[rules.numRequired, rules.validNum, rules.numMin]"
+          :rules="[
+            $rules.required,
+            $rules.numberValid,
+            $rules.numberGreaterThanOrEqual(0)
+          ]"
           :disabled="delayCompBlocked"
-          :hide-details="delayCompElement ? delayCompElement.valid : true"
+          hide-details="auto"
           filled
           dense
           single-line
@@ -119,17 +121,14 @@
 <script lang="ts">
 import { Component, Mixins, Ref } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
-import {
-  TimelapseMode,
-  TimelapseSettings as TimelapseSettingsType
-} from '@/store/timelapse/types'
+import type { TimelapseMode, TimelapseSettings as TimelapseSettingsType } from '@/store/timelapse/types'
 import { SocketActions } from '@/api/socketActions'
 import HyperlapseSettings from '@/components/settings/timelapse/subsettings/modes/HyperlapseSettings.vue'
-import { CameraConfig } from '@/store/cameras/types'
+import type { WebcamConfig } from '@/store/webcams/types'
 import ToolheadParkingSettings from '@/components/settings/timelapse/subsettings/ToolheadParkingSettings.vue'
-import { defaultWritableSettings } from '@/store/timelapse'
-import TimelapseRenderSettingsDialog
-  from '@/components/widgets/timelapse/TimelapseRenderSettingsDialog.vue'
+import { defaultWritableSettings } from '@/store/timelapse/state'
+import TimelapseRenderSettingsDialog from '@/components/widgets/timelapse/TimelapseRenderSettingsDialog.vue'
+import type { VInput } from '@/types'
 
 @Component({
   components: {
@@ -139,16 +138,12 @@ import TimelapseRenderSettingsDialog
   }
 })
 export default class TimelapseSettings extends Mixins(StateMixin) {
-  @Ref('delayCompElement') delayCompElement!: any
+  @Ref('delayCompElement')
+  readonly delayCompElement!: VInput
+
   renderSettingsDialogOpen = false
 
-  rules = {
-    numRequired: (v: number | string) => v !== '' || this.$t('app.general.simple_form.error.required'),
-    validNum: (v: string) => !isNaN(+v) || this.$t('app.general.simple_form.error.invalid_number'),
-    numMin: (v: number) => v >= 0 || this.$t('app.general.simple_form.error.min', { min: 0 })
-  }
-
-  get supportedModes (): {text: string, value: TimelapseMode}[] {
+  get supportedModes (): { text: string, value: TimelapseMode }[] {
     return [{
       text: this.$tc('app.timelapse.setting.mode_layermacro'),
       value: 'layermacro'
@@ -158,9 +153,15 @@ export default class TimelapseSettings extends Mixins(StateMixin) {
     }]
   }
 
-  get cameras (): {text: string, value: string, disabled: boolean} {
-    return this.$store.getters['cameras/getCameras']
-      .map((camera: CameraConfig) => ({ text: camera.name, value: camera.id, disabled: !camera.enabled }))
+  get cameras (): Array<{ text?: string, value: string, disabled: boolean }> {
+    const cameras = this.$store.getters['webcams/getWebcams'] as WebcamConfig[]
+
+    return cameras
+      .map(camera => ({
+        text: camera.name,
+        value: camera.uid,
+        disabled: !camera.enabled
+      }))
   }
 
   get cameraBlocked (): boolean {
@@ -218,11 +219,11 @@ export default class TimelapseSettings extends Mixins(StateMixin) {
   }
 
   subtitleIfBlocked (blocked: boolean): string {
-    return blocked ? this.$tc('app.timelapse.tooltip.managed_by_moonraker') : ''
+    return blocked ? this.$tc('app.general.tooltip.managed_by_moonraker') : ''
   }
 
   handleReset () {
-    const nonBlockedEntries = Object.entries(defaultWritableSettings)
+    const nonBlockedEntries = Object.entries(defaultWritableSettings())
       .filter(([key]) => !this.$store.getters['timelapse/isBlockedSetting'](key))
     SocketActions.machineTimelapseSetSettings(Object.fromEntries(nonBlockedEntries))
   }

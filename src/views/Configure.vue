@@ -7,12 +7,13 @@
       <collapsable-card
         :title="$t('app.general.title.config_files')"
         icon="$codeJson"
-        :draggable="false"
+        :help-tooltip="$t('app.general.tooltip.file_browser_help')"
       >
         <file-system
           :roots="['config']"
-          :max-height="816"
+          max-height="816"
           name="configure"
+          bulk-actions
         />
       </collapsable-card>
     </v-col>
@@ -23,11 +24,11 @@
       <collapsable-card
         :title="$t('app.general.title.other_files')"
         icon="$files"
-        :draggable="false"
+        :help-tooltip="$t('app.general.tooltip.file_browser_configuration_help')"
       >
         <file-system
-          :roots="['logs', 'docs', 'config_examples']"
-          :max-height="816"
+          :roots="roots"
+          max-height="816"
           name="configure"
         />
       </collapsable-card>
@@ -39,7 +40,6 @@
 import { Component, Mixins } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 import FileSystem from '@/components/widgets/filesystem/FileSystem.vue'
-import SystemControl from '@/components/common/SystemControl.vue'
 
 import SystemOverviewCard from '@/components/widgets/system/SystemOverviewCard.vue'
 import SystemUsageCard from '@/components/widgets/system/SystemUsageCard.vue'
@@ -48,7 +48,6 @@ import DiskUsageCard from '@/components/widgets/system/DiskUsageCard.vue'
 @Component({
   components: {
     FileSystem,
-    SystemControl,
     SystemOverviewCard,
     SystemUsageCard,
     DiskUsageCard
@@ -70,8 +69,17 @@ export default class Configure extends Mixins(StateMixin) {
     return 6
   }
 
-  get supportsHistory () {
-    return this.$store.getters['server/componentSupport']('history')
+  get roots () {
+    const roots = ['logs', 'docs', 'config_examples']
+    const excludeRoots = ['gcodes', 'config', 'timelapse', 'timelapse_frames']
+
+    for (const root of this.$store.state.server.info.registered_directories || []) {
+      if (!excludeRoots.includes(root) && !roots.includes(root)) {
+        roots.push(root)
+      }
+    }
+
+    return roots
   }
 }
 </script>

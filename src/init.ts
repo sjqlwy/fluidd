@@ -1,11 +1,15 @@
 import Vue from 'vue'
-import httpClient from '@/api/httpClient'
 import store from './store'
-import consola from 'consola'
+import { consola } from 'consola'
 import { Globals } from './globals'
-import { ApiConfig, InitConfig, HostConfig, InstanceConfig } from './store/config/types'
-import { AxiosError } from 'axios'
+import type { ApiConfig, InitConfig, HostConfig, InstanceConfig } from './store/config/types'
+import axios from 'axios'
 import router from './router'
+import { httpClientActions } from './api/httpClientActions'
+import sanitizeEndpoint from './util/sanitize-endpoint'
+import webSocketWrapper from './util/web-socket-wrapper'
+import promiseAny from './util/promise-any'
+import sleep from './util/sleep'
 
 // Load API configuration
 /**
@@ -17,8 +21,8 @@ import router from './router'
  * 4. Resume Vue Init
  */
 
-const getHostConfig = async (): Promise<HostConfig> => {
-  const hostConfigResponse = await httpClient.get('/config.json?date=' + new Date().getTime())
+const getHostConfig = async () => {
+  const hostConfigResponse = await httpClientActions.get<HostConfig>(`${import.meta.env.BASE_URL}config.json`)
   if (hostConfigResponse && hostConfigResponse.data) {
     consola.debug('Loaded web host configuration', hostConfigResponse.data)
     return hostConfigResponse.data
@@ -31,7 +35,7 @@ const getHostConfig = async (): Promise<HostConfig> => {
 const getApiConfig = async (hostConfig: HostConfig): Promise<ApiConfig | InstanceConfig> => {
   // Local storage load
   if (Globals.LOCAL_INSTANCES_STORAGE_KEY in localStorage) {
-    const instances: InstanceConfig[] = JSON.parse(localStorage[Globals.LOCAL_INSTANCES_STORAGE_KEY])
+    const instances = JSON.parse(localStorage[Globals.LOCAL_INSTANCES_STORAGE_KEY]) as InstanceConfig[]
     if (instances && instances.length) {
       for (const config of instances) {
         if (config.active) {
@@ -44,10 +48,19 @@ const getApiConfig = async (hostConfig: HostConfig): Promise<ApiConfig | Instanc
 
   // If local storage not set, then ping the browser url.
   const endpoints: string[] = []
-  let blacklist: string[] = []
+  const blacklist: string[] = []
 
   if (hostConfig && 'blacklist' in hostConfig && hostConfig.blacklist.length) {
-    blacklist = hostConfig.blacklist
+    blacklist.push(...hostConfig.blacklist)
+  }
+
+  // If endpoints are defined in the hostConfig file,
+  // we want to load these on initial application launch
+  if (hostConfig && 'endpoints' in hostConfig && hostConfig.endpoints.length) {
+    endpoints.push(
+      ...hostConfig.endpoints
+        .map(sanitizeEndpoint)
+        .filter((endpoint): endpoint is string => !!endpoint))
   }
 
   // Add the browsers url to our endpoints list, unless black listed.
@@ -56,27 +69,77 @@ const getApiConfig = async (hostConfig: HostConfig): Promise<ApiConfig | Instanc
     endpoints.push(`${document.location.protocol}//${document.location.host}`)
 
     // Add the moonraker endpoints...
-    let port = '7125'
-    if (document.location.protocol === 'https:') port = '7130'
+    const port = document.location.protocol === 'https:' ? '7130' : '7125'
+
     endpoints.push(`${document.location.protocol}//${document.location.hostname}:${port}`)
   }
 
-  // For each endpoint we have, ping each one to determine if any are active.
-  // If none are, we'll force the instance add dialog.
-  // A 401 would indicate a good ping, since it's potentially an authenticated,
-  // endpoint but working instance.
-  const results = await Promise.all(
-    endpoints.map(async endpoint => {
-      return httpClient.get(endpoint + '/server/info?date=' + new Date().getTime(), { timeout: 1000 })
-        .then(() => true)
-        .catch((error) => error.response?.status === 401)
-    })
-  )
+  const abortController = new AbortController()
 
-  const i = results.findIndex(endpoint => endpoint)
-  return (i > -1)
-    ? Vue.$filters.getApiUrls(endpoints[i])
-    : { apiUrl: '', socketUrl: '' }
+  try {
+    const { signal } = abortController
+
+    const defaultOnTimeout = async () => {
+      await sleep(5000, signal)
+
+      return {
+        apiUrl: '',
+        socketUrl: ''
+      } satisfies ApiConfig
+    }
+
+    return await promiseAny([
+      ...endpoints.map(async (endpoint) => {
+        const apiEndpoints = Vue.$filters.getApiUrls(endpoint)
+
+        await webSocketWrapper(apiEndpoints.socketUrl, signal)
+
+        return apiEndpoints
+      }),
+      defaultOnTimeout()
+    ])
+  } finally {
+    abortController.abort()
+  }
+}
+
+const getMoorakerDatabase = async (apiConfig: ApiConfig, namespace: string) => {
+  const result = {
+    data: {} as any,
+    apiConnected: true,
+    apiAuthenticated: true
+  }
+
+  if (apiConfig.apiUrl !== '' && apiConfig.socketUrl !== '') {
+    try {
+      const response = await httpClientActions.serverDatabaseItemGet(namespace)
+
+      result.data = response.data.result.value
+
+      consola.debug('loaded db', namespace, result.data)
+    } catch (e) {
+      switch (axios.isAxiosError(e) ? e.response?.status : 0) {
+        case 404:
+          // Connected but database does not yet exist
+          break
+
+        case 401:
+          // The API is technically connected, but we're un-authenticated.
+          result.apiAuthenticated = false
+          break
+
+        default:
+          consola.debug('API Down / Not Available:', e)
+          result.apiConnected = false
+          break
+      }
+    }
+  } else {
+    result.apiConnected = false
+    result.apiAuthenticated = false
+  }
+
+  return result
 }
 
 export const appInit = async (apiConfig?: ApiConfig, hostConfig?: HostConfig): Promise<InitConfig> => {
@@ -88,13 +151,20 @@ export const appInit = async (apiConfig?: ApiConfig, hostConfig?: HostConfig): P
     hostConfig = await getHostConfig()
   }
 
+  if (!(Globals.LOCAL_INSTANCES_STORAGE_KEY in localStorage)) {
+    for (const endpoint of hostConfig.endpoints) {
+      apiConfig = Vue.$filters.getApiUrls(endpoint)
+      await store.dispatch('config/initLocal', { apiConfig })
+    }
+  }
+
   // Load the API Config
   if (!apiConfig) {
     apiConfig = await getApiConfig(hostConfig)
   }
 
   // Setup axios
-  if (apiConfig.apiUrl) httpClient.defaults.baseURL = apiConfig.apiUrl
+  if (apiConfig.apiUrl) httpClientActions.defaults.baseURL = apiConfig.apiUrl
 
   // Just sets the api urls
   await store.dispatch('config/onInitApiConfig', apiConfig)
@@ -106,50 +176,61 @@ export const appInit = async (apiConfig?: ApiConfig, hostConfig?: HostConfig): P
   // Load any configuration we may have in moonrakers db
   let apiConnected = true
   let apiAuthenticated = true
-  const roots: { [index: string]: any } = Globals.MOONRAKER_DB.ROOTS
-  for (const key in roots) {
-    if (apiConnected && apiAuthenticated) {
-      const root = roots[key]
-      let d = {}
-      if (apiConfig.apiUrl !== '' && apiConfig.socketUrl !== '') {
-        d = await httpClient.get(`/server/database/item?namespace=${Globals.MOONRAKER_DB.NAMESPACE}&key=${root.name}`)
-          .then(r => {
-            consola.debug('loaded db root', root.name, r.data.result.value)
-            return r.data.result.value
-          })
-          .catch((r: AxiosError) => {
-            if (r.response && r.response.status === 404) {
-              // Init the db store with an empty object.
-              httpClient.post('/server/database/item?namespace=' + Globals.MOONRAKER_DB.NAMESPACE, {
-                key,
-                value: {}
-              })
-              apiConnected = true
-              return {}
-            }
-            if (r.response && r.response.status === 401) {
-              // The API is technically connected, but we're un-authenticated.
-              apiConnected = true
-              apiAuthenticated = false
-            } else {
-              consola.debug('API Down / Not Available:', r)
-              apiConnected = false
-            }
-            return {}
-          })
-      } else {
-        apiConnected = false
-        apiAuthenticated = false
-      }
-      if (d) store.dispatch(root.dispatch, d)
+  for (const { NAMESPACE, ROOTS } of Object.values(Globals.MOONRAKER_DB)) {
+    if (!apiConnected && !apiAuthenticated) {
+      break
     }
+
+    if (Object.keys(ROOTS).length === 0) {
+      continue
+    }
+
+    const result = await getMoorakerDatabase(apiConfig, NAMESPACE)
+
+    apiAuthenticated = result.apiAuthenticated
+    apiConnected = result.apiConnected
+
+    if (!apiConnected || !apiAuthenticated) {
+      break
+    }
+
+    const { data } = result
+
+    const roots = Object.values<Record<string, any>>(ROOTS)
+
+    const promises = roots.map(async (root) => {
+      const value = root.name ? data[root.name] : data
+
+      if (root.migrate_only) {
+        if (value) await store.dispatch(root.dispatch, value)
+      } else {
+        if (!value) {
+          try {
+            await httpClientActions.serverDatabaseItemPost(NAMESPACE, root.name, {})
+          } catch (e) {
+            consola.debug('Error creating database item', e)
+          }
+        }
+
+        await store.dispatch(root.dispatch, value || {})
+      }
+    })
+
+    await Promise.all(promises)
   }
 
   // apiConfig could have empty strings, meaning we have no valid connection.
   await store.dispatch('init', { apiConfig, hostConfig, apiConnected })
 
-  // Ensure users start on the dash.
-  if (router.currentRoute.path !== '/' && store.state.auth?.authenticated) router.push('/')
+  if (store.state.auth.authenticated) {
+    if (router.currentRoute.name === 'login') {
+      await router.push({ name: 'home' })
+    }
+  } else {
+    if (router.currentRoute.name !== 'login') {
+      await router.push({ name: 'login' })
+    }
+  }
 
   return { apiConfig, hostConfig, apiConnected, apiAuthenticated }
 }

@@ -1,6 +1,6 @@
-import { ActionTree } from 'vuex'
-import { DevicePowerState } from './types'
-import { RootState } from '../types'
+import type { ActionTree } from 'vuex'
+import type { DevicePowerState } from './types'
+import type { RootState } from '../types'
 import { SocketActions } from '@/api/socketActions'
 
 export const actions: ActionTree<DevicePowerState, RootState> = {
@@ -36,12 +36,4 @@ export const actions: ActionTree<DevicePowerState, RootState> = {
   async onStatus ({ commit }, payload) {
     commit('setStatus', payload)
   },
-
-  /**
-   * On toggling a power device.
-   */
-  async onToggle ({ commit }, payload) {
-    commit('setStatus', payload)
-  }
-
 }

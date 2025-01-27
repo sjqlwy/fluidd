@@ -2,7 +2,7 @@
   <collapsable-card
     :title="$t('app.general.title.tool')"
     icon="$printer3dNozzle"
-    :draggable="true"
+    draggable
     layout-path="dashboard.toolhead-card"
     menu-breakpoint="lg"
   >
@@ -15,7 +15,7 @@
       <v-tooltip bottom>
         <template #activator="{ on, attrs }">
           <v-icon
-            v-show="!extruderReady"
+            v-show="hasExtruder && !extruderReady"
             v-bind="attrs"
             class="ml-3"
             color="info"
@@ -24,65 +24,109 @@
             $snowflakeAlert
           </v-icon>
         </template>
-        <span v-html="$t('app.tool.tooltip.extruder_disabled', { min: activeExtruder.min_extrude_temp })" />
+        <span v-html="$t('app.tool.tooltip.extruder_disabled', { min: activeExtruder?.min_extrude_temp })" />
       </v-tooltip>
     </template>
 
     <template #menu>
-      <app-btn-collapse-group>
+      <app-btn-collapse-group :collapsed="menuCollapsed">
         <app-btn
-          :elevation="2"
+          v-if="isManualProbeActive"
           :disabled="!klippyReady || printerPrinting"
           small
-          class="ml-1"
+          class="me-1 my-1"
+          @click="manualProbeDialogOpen = true"
+        >
+          {{ $t('app.tool.tooltip.manual_probe') }}
+        </app-btn>
+
+        <app-btn
+          v-if="isBedScrewsAdjustActive"
+          :disabled="!klippyReady || printerPrinting || !allHomed"
+          small
+          class="me-1 my-1"
+          @click="bedScrewsAdjustDialogOpen = true"
+        >
+          BED_SCREWS_ADJUST
+        </app-btn>
+
+        <app-btn
+          v-if="printerSupportsForceMove"
+          :disabled="!klippyReady || printerPrinting"
+          small
+          class="me-1 my-1"
+          :color="forceMoveEnabled ? 'error' : undefined"
+          @click="toggleForceMove"
+        >
+          FORCE_MOVE
+        </app-btn>
+
+        <app-btn
+          v-if="hasSteppersEnabled"
+          :disabled="!klippyReady || printerPrinting"
+          small
+          class="me-1 my-1"
           @click="sendGcode('M84')"
         >
           {{ $t('app.tool.tooltip.motors_off') }}
         </app-btn>
-        <app-btn
-          v-if="printerSupportsBedScrews"
-          :elevation="2"
-          :loading="hasWait(waits.onBedScrewsAdjust)"
-          :disabled="!klippyReady || printerPrinting"
-          small
-          class="ml-1"
-          @click="sendGcode('BED_SCREWS_ADJUST', waits.onBedScrewsAdjust)"
+
+        <v-menu
+          v-if="availableTools.length"
+          left
+          offset-y
+          transition="slide-y-transition"
         >
-          {{ $t('app.tool.tooltip.bed_screws_adjust') }}
-        </app-btn>
-        <app-btn
-          v-if="printerSupportsBedScrewsCalculate"
-          :elevation="2"
-          :loading="hasWait(waits.onBedScrewsCalculate)"
-          :disabled="!allHomed || !klippyReady || printerPrinting"
-          small
-          class="ml-1"
-          @click="sendGcode('SCREWS_TILT_CALCULATE', waits.onBedScrewsCalculate)"
-        >
-          {{ $t('app.tool.tooltip.screws_tilt_calculate') }}
-        </app-btn>
-        <app-btn
-          v-if="printerSupportsZtilt"
-          :elevation="2"
-          :loading="hasWait(waits.onZTilt)"
-          :disabled="!klippyReady || printerPrinting"
-          small
-          class="ml-1"
-          @click="sendGcode('Z_TILT_ADJUST', waits.onZTilt)"
-        >
-          {{ $t('app.tool.tooltip.z_tilt_adjust') }}
-        </app-btn>
-        <app-btn
-          v-if="printerSupportsQgl"
-          :elevation="2"
-          :loading="hasWait(waits.onQGL)"
-          :disabled="!klippyReady || printerPrinting"
-          small
-          class="ml-1"
-          @click="sendGcode('QUAD_GANTRY_LEVEL', waits.onQGL)"
-        >
-          {{ $t('app.tool.tooltip.quad_gantry_level') }}
-        </app-btn>
+          <template #activator="{ on, attrs, value }">
+            <app-btn
+              v-bind="attrs"
+              small
+              class="me-1 my-1"
+              :disabled="!klippyReady || printerPrinting"
+              v-on="on"
+            >
+              <v-icon
+                small
+                class="me-1"
+              >
+                $tools
+              </v-icon>
+              {{ $t('app.tool.tooltip.tools') }}
+              <v-icon
+                small
+                class="ms-1"
+                :class="{ 'rotate-180': value }"
+              >
+                $chevronDown
+              </v-icon>
+            </app-btn>
+          </template>
+          <v-list dense>
+            <template v-for="(tool, index) of availableTools">
+              <v-list-item
+                v-if="tool.name !== '-'"
+                :key="tool.name"
+                :disabled="tool.disabled || (tool.wait && hasWait(tool.wait))"
+                @click="sendGcode(tool.name, tool.wait)"
+              >
+                <v-list-item-icon>
+                  <v-icon>
+                    {{ tool.icon || '$tools' }}
+                  </v-icon>
+                </v-list-item-icon>
+                <v-list-item-content>
+                  <v-list-item-title>
+                    {{ tool.label || tool.name }}
+                  </v-list-item-title>
+                </v-list-item-content>
+              </v-list-item>
+              <v-divider
+                v-else
+                :key="`sep=${index}`"
+              />
+            </template>
+          </v-list>
+        </v-menu>
       </app-btn-collapse-group>
     </template>
 
@@ -91,10 +135,20 @@
 </template>
 
 <script lang="ts">
-import { Component, Mixins } from 'vue-property-decorator'
+import { Component, Mixins, Prop } from 'vue-property-decorator'
 import StateMixin from '@/mixins/state'
 import ToolheadMixin from '@/mixins/toolhead'
-import Toolhead from '@/components/widgets/toolhead/Toolhead.vue'
+import Toolhead from './Toolhead.vue'
+import type { Macro } from '@/store/macros/types'
+import type { KlippyApp } from '@/store/printer/types'
+
+type Tool = {
+  name: string,
+  label?: string,
+  disabled?: boolean,
+  wait?: string,
+  icon?: string,
+}
 
 @Component({
   components: {
@@ -102,24 +156,238 @@ import Toolhead from '@/components/widgets/toolhead/Toolhead.vue'
   }
 })
 export default class ToolheadCard extends Mixins(StateMixin, ToolheadMixin) {
+  @Prop({ type: Boolean })
+  readonly menuCollapsed?: boolean
+
+  get klippyApp (): KlippyApp {
+    return this.$store.getters['printer/getKlippyApp'] as KlippyApp
+  }
+
   get printerSettings () {
     return this.$store.getters['printer/getPrinterSettings']()
   }
 
-  get printerSupportsQgl (): boolean {
+  get printerSupportsQuadGantryLevel (): boolean {
     return 'quad_gantry_level' in this.printerSettings
   }
 
-  get printerSupportsZtilt (): boolean {
-    return 'z_tilt' in this.printerSettings
+  get printerSupportsZTiltAdjust (): boolean {
+    return (
+      'z_tilt' in this.printerSettings ||
+      (
+        this.klippyApp.isKalico &&
+        'z_tilt_ng' in this.printerSettings
+      )
+    )
   }
 
-  get printerSupportsBedScrews (): boolean {
+  get printerSupportsBedScrewsAdjust (): boolean {
     return 'bed_screws' in this.printerSettings
   }
 
   get printerSupportsBedScrewsCalculate (): boolean {
     return 'screws_tilt_adjust' in this.printerSettings
+  }
+
+  get printerSupportsBedTiltCalibrate (): boolean {
+    return 'bed_tilt' in this.printerSettings
+  }
+
+  get printerSupportsDeltaCalibrate (): boolean {
+    return 'delta_calibrate' in this.printerSettings
+  }
+
+  get printerSupportsProbeCalibrate (): boolean {
+    return (
+      'probe' in this.printerSettings ||
+      'bltouch' in this.printerSettings
+    )
+  }
+
+  get printerSupportsZEndstopCalibrate (): boolean {
+    return (
+      'stepper_z' in this.printerSettings &&
+      'z_position_endstop' in this.printerSettings.stepper_z
+    )
+  }
+
+  get loadFilamentMacro (): Macro | undefined {
+    return this.$store.getters['macros/getMacroByName'](
+      'LOAD_FILAMENT',
+      'FILAMENT_LOAD',
+      'M701'
+    ) as Macro | undefined
+  }
+
+  get unloadFilamentMacro (): Macro | undefined {
+    return this.$store.getters['macros/getMacroByName'](
+      'UNLOAD_FILAMENT',
+      'FILAMENT_UNLOAD',
+      'M702'
+    ) as Macro | undefined
+  }
+
+  get cleanNozzleMacro (): Macro | undefined {
+    return this.$store.getters['macros/getMacroByName'](
+      'CLEAN_NOZZLE',
+      'NOZZLE_CLEAN',
+      'WIPE_NOZZLE',
+      'NOZZLE_WIPE',
+      'G12'
+    ) as Macro | undefined
+  }
+
+  get availableTools () {
+    const tools: Tool[] = []
+
+    const loadFilamentMacro = this.loadFilamentMacro
+
+    if (loadFilamentMacro) {
+      const ignoreMinExtrudeTemp = loadFilamentMacro.variables?.ignore_min_extrude_temp ?? false
+
+      tools.push({
+        name: loadFilamentMacro.name.toUpperCase(),
+        label: loadFilamentMacro.name === 'm701' ? 'M701 (Load Filament)' : undefined,
+        icon: '$loadFilament',
+        disabled: !(ignoreMinExtrudeTemp || this.extruderReady)
+      })
+    }
+
+    const unloadFilamentMacro = this.unloadFilamentMacro
+
+    if (unloadFilamentMacro) {
+      const ignoreMinExtrudeTemp = unloadFilamentMacro.variables?.ignore_min_extrude_temp ?? false
+
+      tools.push({
+        name: unloadFilamentMacro.name.toUpperCase(),
+        label: unloadFilamentMacro.name === 'm702' ? 'M702 (Unload Filament)' : undefined,
+        icon: '$unloadFilament',
+        disabled: !(ignoreMinExtrudeTemp || this.extruderReady)
+      })
+    }
+
+    const cleanNozzleMacro = this.cleanNozzleMacro
+
+    if (cleanNozzleMacro) {
+      tools.push({
+        name: cleanNozzleMacro.name.toUpperCase(),
+        label: cleanNozzleMacro.name === 'g12' ? 'G12 (Clean the Nozzle)' : undefined,
+        icon: '$cleanNozzle'
+      })
+    }
+
+    if (tools.length > 0) {
+      tools.push({
+        name: '-'
+      })
+    }
+
+    if (this.printerSupportsBedScrewsAdjust) {
+      tools.push({
+        name: 'BED_SCREWS_ADJUST',
+        disabled: !this.allHomed || this.isBedScrewsAdjustActive,
+        wait: this.$waits.onBedScrewsAdjust
+      })
+    }
+
+    if (this.printerSupportsBedTiltCalibrate) {
+      tools.push({
+        name: 'BED_TILT_CALIBRATE',
+        disabled: !this.allHomed || this.isManualProbeActive,
+        wait: this.$waits.onBedTiltCalibrate
+      })
+    }
+
+    if (this.printerSupportsDeltaCalibrate) {
+      tools.push({
+        name: 'DELTA_CALIBRATE',
+        disabled: !this.allHomed || this.isManualProbeActive,
+        wait: this.$waits.onDeltaCalibrate
+      })
+    }
+
+    tools.push({
+      name: 'MANUAL_PROBE',
+      disabled: !this.allHomed || this.isManualProbeActive,
+      wait: this.$waits.onManualProbe
+    })
+
+    if (this.printerSupportsProbeCalibrate) {
+      tools.push({
+        name: 'PROBE_ACCURACY',
+        disabled: !this.allHomed,
+        wait: this.$waits.onProbeAccuracy
+      })
+      tools.push({
+        name: 'PROBE_CALIBRATE',
+        disabled: !this.allHomed,
+        wait: this.$waits.onProbeCalibrate
+      })
+    }
+
+    if (this.printerSupportsQuadGantryLevel) {
+      tools.push({
+        name: 'QUAD_GANTRY_LEVEL',
+        disabled: !this.allHomed || this.isManualProbeActive,
+        wait: this.$waits.onQGL
+      })
+    }
+
+    if (this.printerSupportsBedScrewsCalculate) {
+      tools.push({
+        name: 'SCREWS_TILT_CALCULATE',
+        disabled: !this.allHomed || this.isManualProbeActive,
+        wait: this.$waits.onBedScrewsCalculate
+      })
+    }
+
+    if (this.printerSupportsZEndstopCalibrate) {
+      tools.push({
+        name: 'Z_ENDSTOP_CALIBRATE',
+        disabled: !this.allHomed || this.isManualProbeActive,
+        wait: this.$waits.onZEndstopCalibrate
+      })
+    }
+
+    if (this.printerSupportsZTiltAdjust) {
+      tools.push({
+        name: 'Z_TILT_ADJUST',
+        disabled: !this.allHomed || this.isManualProbeActive,
+        wait: this.$waits.onZTilt
+      })
+    }
+
+    return tools
+  }
+
+  get printerSupportsForceMove () {
+    return (
+      (this.printerSettings.force_move?.enable_force_move ?? false) &&
+      !this.hasRoundBed
+    )
+  }
+
+  get hasSteppersEnabled (): boolean {
+    return this.$store.getters['printer/getHasSteppersEnabled'] as boolean
+  }
+
+  get hasRoundBed (): boolean {
+    return this.$store.getters['printer/getHasRoundBed'] as boolean
+  }
+
+  async toggleForceMove () {
+    const result = (
+      this.forceMoveEnabled ||
+      !this.$store.state.config.uiSettings.general.forceMoveToggleWarning ||
+      await this.$confirm(
+        this.$tc('app.general.simple_form.msg.confirm_forcemove_toggle'),
+        { title: this.$tc('app.general.label.confirm'), color: 'card-heading', icon: '$warning' }
+      )
+    )
+
+    if (result) {
+      this.$store.dispatch('printer/forceMoveEnabled', !this.forceMoveEnabled)
+    }
   }
 }
 </script>

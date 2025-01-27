@@ -17,15 +17,25 @@
           align-self="center"
           class="text-no-wrap"
         >
-          <slot name="title">
+          <slot
+            name="title"
+            :in-layout="inLayout"
+          >
             <v-icon left>
               {{ icon }}
             </v-icon>
             <span class="font-weight-light">{{ title }}</span>
+            <app-inline-help
+              v-if="!inLayout && helpTooltip"
+              bottom
+              small
+              :tooltip="helpTooltip"
+            />
           </slot>
         </v-col>
 
         <v-col
+          v-if="!inLayout"
           cols="auto"
           align-self="center"
         >
@@ -49,6 +59,12 @@
       </v-row>
     </v-card-title>
 
+    <v-expand-transition>
+      <div v-show="isCollapsed && !inLayout">
+        <slot name="collapsed-content" />
+      </div>
+    </v-expand-transition>
+
     <v-expand-transition v-if="!lazy">
       <div
         v-if="!isCollapsed && !inLayout"
@@ -57,22 +73,22 @@
         :style="_contentStyles"
         @transitionend="transitionEvent"
       >
-        <v-card-subtitle
-          v-if="subTitle || hasSubTitleSlot"
-          class="py-2"
-        >
-          <slot name="sub-title">
-            <span v-html="subTitle" />
-          </slot>
-        </v-card-subtitle>
-        <v-divider v-if="subTitle || hasSubTitleSlot" />
+        <template v-if="subTitle || hasSubTitleSlot">
+          <v-card-subtitle class="py-2">
+            <slot name="sub-title">
+              <span v-html="subTitle" />
+            </slot>
+          </v-card-subtitle>
+
+          <v-divider />
+        </template>
 
         <!-- Primary Content slot -->
         <slot />
       </div>
     </v-expand-transition>
 
-    <v-expand-transition v-if="lazy">
+    <v-expand-transition v-else>
       <div
         v-show="!isCollapsed && !inLayout"
         id="card-content"
@@ -80,15 +96,17 @@
         :style="_contentStyles"
         @transitionend="transitionEvent"
       >
-        <v-card-subtitle
+        <template
           v-if="subTitle || hasSubTitleSlot"
-          class="py-2"
         >
-          <slot name="subTitle">
-            <span v-html="subTitle" />
-          </slot>
-        </v-card-subtitle>
-        <v-divider v-if="subTitle || hasSubTitleSlot" />
+          <v-card-subtitle class="py-2">
+            <slot name="subTitle">
+              <span v-html="subTitle" />
+            </slot>
+          </v-card-subtitle>
+
+          <v-divider />
+        </template>
 
         <!-- Primary Content slot -->
         <slot />
@@ -98,8 +116,7 @@
 </template>
 
 <script lang="ts">
-import { LayoutConfig } from '@/store/layout/types'
-import { kebabCase } from 'lodash-es'
+import type { LayoutConfig } from '@/store/layout/types'
 import { Component, Vue, Prop, Watch } from 'vue-property-decorator'
 
 @Component({})
@@ -108,19 +125,22 @@ export default class CollapsableCard extends Vue {
    * Title
    */
   @Prop({ type: String, required: true })
-  title!: string
+  readonly title!: string
+
+  @Prop({ type: String })
+  readonly helpTooltip?: string
 
   /**
    * Card color.
    */
   @Prop({ type: String })
-  color!: string
+  readonly color!: string
 
   /**
    * Sub title.
    */
-  @Prop({ type: String, required: false })
-  subTitle!: string
+  @Prop({ type: String })
+  readonly subTitle?: string
 
   /**
    * Required to bind to a layout.
@@ -131,7 +151,7 @@ export default class CollapsableCard extends Vue {
    * duplicate id's across containers for any given layout.
    */
   @Prop({ type: String })
-  layoutPath!: string
+  readonly layoutPath!: string
 
   /**
    * If lazy, we use a v-show for card display.
@@ -142,79 +162,73 @@ export default class CollapsableCard extends Vue {
    * visible.
    */
   @Prop({ type: Boolean, default: true })
-  lazy!: boolean
+  readonly lazy?: boolean
 
   /**
    * The icon to use in the title.
    */
-  @Prop({ type: String, required: false })
-  icon!: string
-
-  /**
-   * The icon color to use in the title.
-   */
-  @Prop({ type: String, required: false })
-  iconColor!: string
+  @Prop({ type: String, required: true })
+  readonly icon!: string
 
   /**
    * Loading state.
    */
-  @Prop({ type: Boolean, default: false })
-  loading!: boolean
+  @Prop({ type: Boolean })
+  readonly loading?: boolean
 
   /**
    * Enables dragging of the card. Also causes the card
    * to react to layoutMode state.
    */
-  @Prop({ type: Boolean, default: false })
-  draggable!: boolean
+  @Prop({ type: Boolean })
+  readonly draggable?: boolean
 
   /**
    * Whether this card is collapsable or not.
    */
   @Prop({ type: Boolean, default: true })
-  collapsable!: boolean
+  readonly collapsable?: boolean
 
   /**
    * Rounded
    */
   @Prop({ type: String, default: 'md' })
-  rounded!: string
+  readonly rounded!: string
 
   /**
    * Optionally set a defined height.
    */
-  @Prop({ type: [Number, String], required: false })
-  height!: number | string
+  @Prop({ type: [Number, String] })
+  readonly height?: number | string
 
   /**
    * Breakpoint at which to condense the menu buttons to a hamburger.
    * xs, sm, md, lg, xl.
    */
   @Prop({ type: String, default: 'lg' })
-  menuBreakpoint!: string
+  readonly menuBreakpoint!: string
 
   /**
    * Define any optional classes for the card itself.
    */
   @Prop({ type: String })
-  cardClasses!: string
+  readonly cardClasses?: string
 
   /**
    * Define any optional classes for the card content itself.
    */
   @Prop({ type: String })
-  contentClasses!: string
+  readonly contentClasses?: string
 
   /**
    * Base classes.
    */
   baseCardClasses = { 'collapsable-card': true }
-  baseContentClasses = ''
+  baseContentClasses = { 'overflow-hidden': true }
 
   get _cardClasses () {
     // If user defined, format to an object based on the input.
-    const classes: any = {}
+    const classes: Record<string, unknown> = {}
     if (this.cardClasses) {
       this.cardClasses.split(' ').forEach(s => {
         classes[s] = true
@@ -223,14 +237,21 @@ export default class CollapsableCard extends Vue {
     return {
       ...classes,
       ...this.baseCardClasses,
-      collapsed: this.isCollapsed
+      collapsed: (this.isCollapsed || !this.hasDefaultSlot || this.inLayout) && !this.hasCollapsedContentSlot
     }
   }
 
   get _contentClasses () {
-    return (this.contentClasses)
-      ? this.contentClasses
-      : this.baseContentClasses
+    const classes: Record<string, unknown> = {}
+    if (this.contentClasses) {
+      this.contentClasses.split(' ').forEach(s => {
+        classes[s] = true
+      })
+    }
+    return {
+      ...classes,
+      ...this.baseContentClasses
+    }
   }
 
   // height can not be applied to the card, otherwise
@@ -253,9 +274,12 @@ export default class CollapsableCard extends Vue {
     if (this.layoutPath) {
       if (this.layoutPath.includes('.')) {
         const split = this.layoutPath.split('.')
+        let name = split[0]
+        if (name === 'dashboard') name = this.$store.getters['layout/getSpecificLayoutName']
+
         return {
-          name: split[0],
-          id: kebabCase(split[1])
+          name,
+          id: split[1]
         }
       } else {
         throw new Error('invalid layout path')
@@ -286,6 +310,9 @@ export default class CollapsableCard extends Vue {
    * If the layout isn't defined, then this should always be disabled.
    */
   get isCollapsed (): boolean {
+    if (!this.collapsable) {
+      return false
+    }
     return (this.layout) ? this.layout.collapsed : false
   }
 
@@ -321,7 +348,10 @@ export default class CollapsableCard extends Vue {
   }
 
   get inLayout (): boolean {
-    return (this.$store.state.config.layoutMode && this.draggable)
+    return (
+      this.$store.state.config.layoutMode &&
+      !!this.draggable
+    )
   }
 
   /**
@@ -352,6 +382,14 @@ export default class CollapsableCard extends Vue {
     return !!this.$slots['collapse-button'] || !!this.$scopedSlots['collapse-button']
   }
 
+  get hasCollapsedContentSlot () {
+    // no idea if the slot has children, so we assume it does
+    if (this.$scopedSlots['collapse-button']) return true
+
+    // return true if slot is defined and has child elements
+    return !!this.$slots['collapsed-content']?.length
+  }
+
   mounted () {
     this.$emit('collapsed', this.isCollapsed)
     if (this.hasCollapseButtonSlot) {
@@ -359,23 +397,28 @@ export default class CollapsableCard extends Vue {
     }
   }
 
-  onCollapseChange (e: boolean) {
-    this.isCollapsed = e
+  onCollapseChange (isCollapsed: boolean) {
+    this.isCollapsed = isCollapsed
   }
 
-  onLayoutEnabled (e: Event) {
-    this.$emit('enabled', e)
+  onLayoutEnabled (event: Event) {
+    this.$emit('enabled', event)
   }
 
-  transitionEvent (e: TransitionEvent) {
+  transitionEvent (event: TransitionEvent) {
     if (
-      e.target &&
-      e.target) {
-      const target = e.target as Element
-      if (target.id === 'card-content') {
-        this.$emit('transition-end')
-      }
+      event.target instanceof HTMLElement &&
+      event.target.id === 'card-content'
+    ) {
+      this.$emit('transition-end')
     }
   }
 }
 </script>
+
+<style lang="scss" scoped>
+.v-card.collapsed > .card-heading {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+</style>

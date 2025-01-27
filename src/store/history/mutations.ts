@@ -1,7 +1,7 @@
 import Vue from 'vue'
-import { MutationTree } from 'vuex'
-import { defaultState } from './'
-import { HistoryItem, HistoryState } from './types'
+import type { MutationTree } from 'vuex'
+import { defaultState } from './state'
+import type { HistoryItem, HistoryState } from './types'
 
 export const mutations: MutationTree<HistoryState> = {
   /**
@@ -44,6 +44,22 @@ export const mutations: MutationTree<HistoryState> = {
       const i = state.jobs.findIndex(job => job.job_id === payload.job_id)
       if (i >= 0) {
         Vue.set(state.jobs, i, payload)
+      }
+    }
+  },
+
+  setClearHistoryThumbnails (state, payload: string) {
+    if (payload) {
+      const i = state.jobs.findIndex(job => job.job_id === payload)
+      if (i >= 0) {
+        const job = state.jobs[i]
+        Vue.set(state.jobs, i, {
+          ...job,
+          metadata: {
+            ...job.metadata,
+            thumbnails: []
+          }
+        })
       }
     }
   },

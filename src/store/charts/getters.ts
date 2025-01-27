@@ -1,9 +1,10 @@
+import Vue from 'vue'
 import vuetify from '@/plugins/vuetify'
-import { GetterTree } from 'vuex'
-import { ChartState } from './types'
-import { RootState } from '../types'
+import type { GetterTree } from 'vuex'
+import type { ChartState } from './types'
+import type { RootState } from '../types'
 import { Globals } from '@/globals'
-import dayjs from 'dayjs'
+import type { EChartsOption } from 'echarts'
 
 export const getters: GetterTree<ChartState, RootState> = {
   /**
@@ -33,9 +34,9 @@ export const getters: GetterTree<ChartState, RootState> = {
   /**
    * Return base chart options given a chart type.
    */
-  getBaseChartOptions: (state, getters, rootState, rootGetters) => (tooltipSuffix: { [index: string]: string } = {}) => {
+  getBaseChartOptions: (state, getters, rootState) => (tooltipSuffix: { [index: string]: string } = {}) => {
     // Common properties across all chart types.
-    const isDark = rootState.config?.uiSettings.theme.isDark
+    const isDark = rootState.config.uiSettings.theme.isDark
     const isMobile = vuetify.framework.breakpoint.mobile
 
     const fontColor = (isDark) ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.45)'
@@ -66,16 +67,19 @@ export const getters: GetterTree<ChartState, RootState> = {
       }
     }
 
-    const theme = rootGetters['config/getTheme']
+    const theme = vuetify.framework.theme.currentTheme
     const color = [
-      theme.currentTheme.primary,
-      theme.currentTheme.accent,
-      theme.currentTheme.info
+      theme.primary,
+      theme.accent,
+      theme.info
     ]
 
     return {
       color,
       grid,
+      textStyle: {
+        fontFamily: 'Roboto'
+      },
       tooltip: {
         ...tooltip,
         show: true,
@@ -86,7 +90,6 @@ export const getters: GetterTree<ChartState, RootState> = {
           let text = '<div>'
           params
             .forEach((param: any) => {
-              // console.log(param)
               const xDimension = param.dimensionNames[param.encode.x]
               const yDimension = param.dimensionNames[param.encode.y]
               const ySuffix = tooltipSuffix[yDimension] || ''
@@ -96,10 +99,9 @@ export const getters: GetterTree<ChartState, RootState> = {
                 param.seriesName
               ) {
                 if (!title) {
-                  const date = dayjs(param.value[xDimension])
                   text += `
                   <span style="font-size:${fontSize}px;color:${fontColor};font-weight:400;margin-left:2px">
-                    ${date.format('LTS')}
+                    ${Vue.$filters.formatTimeWithSeconds(param.value[xDimension])}
                   </span>
                   `
                   title = true
@@ -108,7 +110,7 @@ export const getters: GetterTree<ChartState, RootState> = {
                   <div style="white-space: nowrap;">
                     ${param.marker}
                     <span style="font-size:${fontSize}px;color:${fontColor};font-weight:400;margin-left:2px">
-                      ${param.seriesName}:
+                      ${Vue.$filters.prettyCase(param.seriesName)}:
                     </span>
                     <span style="float:right;margin-left:20px;font-size:${fontSize}px;color:${fontColor};font-weight:900">
                       ${param.value[yDimension]}${ySuffix}
@@ -148,7 +150,7 @@ export const getters: GetterTree<ChartState, RootState> = {
         axisLabel: { show: false, formatter: '{value}%' },
         splitLine: { show: true, lineStyle }
       }
-    }
+    } as EChartsOption
   },
 
   /**

@@ -1,17 +1,17 @@
 <template>
   <v-menu
-    ref="menu"
-    v-model="menu"
     bottom
     left
-    :max-width="260"
+    max-width="260"
     :close-on-content-click="false"
+    :disabled="disabled"
   >
     <template #activator="{ on, attrs }">
       <v-btn
-        v-show="!dot"
+        v-if="!dot"
         v-bind="attrs"
-        :color="primaryColor.hexString"
+        :color="controlColor"
+        :disabled="disabled"
         outlined
         small
         v-on="on"
@@ -20,9 +20,10 @@
       </v-btn>
 
       <v-icon
-        v-show="dot"
+        v-else
         v-bind="attrs"
-        :color="primaryColor.hexString"
+        :color="controlColor"
+        :disabled="disabled"
         v-on="on"
       >
         $circle
@@ -41,15 +42,16 @@
       </v-card-title>
       <v-card-text>
         <v-icon
-          :color="primaryColor.hexString"
+          v-if="supportedChannels !== 'W'"
+          :color="currentPrimaryColor.hexString"
           large
         >
           $circle
         </v-icon>
 
         <v-icon
-          v-if="white"
-          :color="whiteColor.hexString"
+          v-if="supportedChannels.includes('W')"
+          :color="currentWhiteColor.hexString"
           large
         >
           $circle
@@ -59,67 +61,103 @@
           align-center
           column
         >
-          <!-- <pre>{{primaryColor.hexString}}</pre> -->
-          <!-- standard full color picker -->
           <app-iro-color-picker
-            v-if="primaryColor"
-            :color="primaryColor.hexString"
+            v-if="supportedChannels !== 'W'"
+            v-model="currentPrimaryColor.hexString"
             :options="primaryOptions"
-            @color:change="handleColorChange('primary', $event)"
+            @input="handleSubmitPrimary"
           />
 
-          <!-- white channel color picker -->
           <app-iro-color-picker
-            v-if="white"
+            v-if="supportedChannels.includes('W')"
+            v-model="currentWhiteColor.hexString"
             class="mt-4"
-            :color="whiteColor.hexString"
             :options="whiteOptions"
-            @color:change="handleColorChange('white', $event)"
+            @input="handleSubmitWhite"
           />
         </v-layout>
 
-        <!-- <pre>{{ primaryColor }}</pre>
-          <pre v-if="this.white">{{ whiteColor }}</pre> -->
+        <div class="text-right mt-4 mr-1">
+          <v-btn-toggle
+            v-model="valueRange"
+            mandatory
+          >
+            <app-btn
+              x-small
+              value="absolute"
+            >
+              0..255
+            </app-btn>
+            <app-btn
+              x-small
+              value="percentage"
+            >
+              0..1
+            </app-btn>
+          </v-btn-toggle>
+        </div>
+
         <v-layout
-          class="mt-4"
+          class="mt-2"
           justify-space-between
         >
-          <div class="color-input">
+          <div
+            v-if="supportedChannels !== 'W'"
+            class="color-input"
+          >
             <v-text-field
-              v-model.number="primaryColor.rgb.r"
+              v-model.number="currentRed"
               dense
               hide-details
               outlined
+              persistent-placeholder
+              @blur="handleReset"
+              @keyup.enter.exact="handleSubmitPrimary"
             />
             <div>R</div>
           </div>
-          <div class="color-input">
+          <div
+            v-if="supportedChannels !== 'W'"
+            class="color-input"
+          >
             <v-text-field
-              v-model.number="primaryColor.rgb.g"
+              v-model.number="currentGreen"
               dense
               hide-details
               outlined
+              persistent-placeholder
+              @blur="handleReset"
+              @keyup.enter.exact="handleSubmitPrimary"
             />
             <div>G</div>
           </div>
-          <div class="color-input">
+          <div
+            v-if="supportedChannels !== 'W'"
+            class="color-input"
+          >
             <v-text-field
-              v-model.number="primaryColor.rgb.b"
+              v-model.number="currentBlue"
               dense
               hide-details
               outlined
+              persistent-placeholder
+              @blur="handleReset"
+              @keyup.enter.exact="handleSubmitPrimary"
             />
             <div>B</div>
           </div>
           <div
-            v-if="white"
+            v-if="supportedChannels.includes('W')"
             class="color-input"
           >
             <v-text-field
-              v-model="whiteColor.rgb.r"
+              v-model.number="currentWhite"
               dense
               hide-details
               outlined
+              persistent-placeholder
+              @blur="handleReset"
+              @keyup.enter.exact="handleSubmitWhite"
             />
             <div>W</div>
           </div>
@@ -130,157 +168,170 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue, Prop, Watch, Ref } from 'vue-property-decorator'
-import { Debounce } from 'vue-debounce-decorator'
+import { Component, Vue, Prop, Ref, VModel, PropSync, Watch } from 'vue-property-decorator'
 import iro from '@jaames/iro'
 import { IroColor } from '@irojs/iro-core'
-
-interface RgbwColor {
-    r: number;
-    g: number;
-    b: number;
-}
-
-interface AppColor {
-  hexString: string;
-  rgb: RgbwColor;
-}
+import type { ColorPickerProps } from '@jaames/iro/dist/ColorPicker'
+import type { ColorPickerValueRange } from '@/store/config/types'
 
 interface PointerPosition {
   x: number;
   y: number;
 }
 
-@Component({
-  components: {}
-})
+@Component({})
 export default class AppColorPicker extends Vue {
-  // Expected color input. Can be a hex, rgbw etc.
-  @Prop({ type: String, required: true })
-  primary!: string
+  @VModel({ type: String, required: true })
+  inputPrimaryColor!: string
 
-  @Prop({ type: String, required: false })
-  white!: string
+  @PropSync('white', { type: Number, default: 0 })
+  inputWhiteValue!: number
 
   @Prop({ type: String, default: '' })
-  title!: string
+  readonly title!: string
 
-  @Prop({ type: Boolean, default: false })
-  dot!: boolean
+  @Prop({ type: Boolean })
+  readonly dot?: boolean
 
-  menu = false
+  @Prop({ type: String, default: 'RGB' })
+  readonly supportedChannels!: string
+
+  @Prop({ type: Boolean })
+  readonly disabled?: boolean
 
   @Ref('card')
-  card!: Vue
+  readonly card!: Vue
 
   lastPointerPosition: PointerPosition = { x: 0, y: 0 }
 
-  primaryColor: AppColor = {
-    hexString: '#ffffff',
-    rgb: { r: 255, g: 255, b: 255 }
-  }
-
-  whiteColor: AppColor = {
-    hexString: '#ffffff',
-    rgb: { r: 255, g: 255, b: 255 }
-  }
-
-  primaryOptions = {
-    color: this.primaryColor,
-    width: 208,
-    layout: [
-      {
-        component: iro.ui.Wheel,
-        options: {
-          wheelLightness: false,
-          wheelAngle: 270,
-          wheelDirection: 'clockwise'
+  get primaryOptions (): Partial<ColorPickerProps> {
+    return {
+      color: this.inputPrimaryColor,
+      width: 208,
+      layout: [
+        {
+          component: iro.ui.Wheel,
+          options: {
+            wheelLightness: false,
+            wheelAngle: 270,
+            wheelDirection: 'clockwise'
+          }
+        },
+        {
+          component: iro.ui.Slider,
+          options: {
+            sliderType: 'value'
+          }
         }
-      },
-      {
-        component: iro.ui.Slider,
-        options: {
-          sliderType: 'value'
-        }
-      }
-    ]
-  }
-
-  whiteOptions = {
-    color: this.whiteColor,
-    width: 208,
-    layout: [
-      {
-        component: iro.ui.Slider,
-        options: {
-          sliderType: 'value'
-        }
-      }
-    ]
-  }
-
-  @Watch('primaryColor', { deep: true })
-  onPrimaryColorChange (value: AppColor) {
-    // Update the hex to reflect changes. This covers off users adjusting
-    // the rgb values independently.
-    const c = new IroColor(value.rgb)
-    if (c.hexString !== value.hexString) this.primaryColor.hexString = c.hexString
-  }
-
-  @Watch('whiteColor', { deep: true })
-  onWhiteColorChange (value: AppColor) {
-    // Update the hex to reflect changes. This covers off users adjusting
-    // the rgb values independently.
-    const c = new IroColor({ r: value.rgb.r, g: value.rgb.r, b: value.rgb.r })
-    if (c.hexString !== value.hexString) this.whiteColor.hexString = c.hexString
-  }
-
-  @Watch('primary')
-  onPrimaryChange (value: string) {
-    if (value) {
-      this.primaryColor = this.getColor(value)
+      ]
     }
+  }
+
+  get whiteOptions (): Partial<ColorPickerProps> {
+    return {
+      color: this.inputWhiteColor,
+      width: 208,
+      layout: [
+        {
+          component: iro.ui.Slider,
+          options: {
+            sliderType: 'value'
+          }
+        }
+      ]
+    }
+  }
+
+  currentPrimaryColor = new IroColor()
+  currentWhiteColor = new IroColor()
+
+  @Watch('value')
+  onValue (value: string) {
+    this.currentPrimaryColor.set(value)
   }
 
   @Watch('white')
-  onWhiteChange (value: string) {
-    if (value) {
-      this.whiteColor = this.getColor(value)
-    }
+  onWhite (value: number) {
+    this.currentWhiteColor.set(this.valueToHexColor(value))
+  }
+
+  get currentRed (): number {
+    return this.convertValueRange(this.currentPrimaryColor.red, 'out')
+  }
+
+  set currentRed (value: number) {
+    this.currentPrimaryColor.red = this.convertValueRange(value, 'in')
+  }
+
+  get currentGreen (): number {
+    return this.convertValueRange(this.currentPrimaryColor.green, 'out')
+  }
+
+  set currentGreen (value: number) {
+    this.currentPrimaryColor.green = this.convertValueRange(value, 'in')
+  }
+
+  get currentBlue (): number {
+    return this.convertValueRange(this.currentPrimaryColor.blue, 'out')
+  }
+
+  set currentBlue (value: number) {
+    this.currentPrimaryColor.blue = this.convertValueRange(value, 'in')
+  }
+
+  get currentWhite (): number {
+    return this.convertValueRange(this.currentWhiteColor.red, 'out')
+  }
+
+  set currentWhite (value: number) {
+    this.currentWhiteColor.set(this.valueToHexColor(this.convertValueRange(value, 'in')))
+  }
+
+  get inputWhiteColor (): string {
+    return this.valueToHexColor(this.inputWhiteValue)
+  }
+
+  get controlColor (): string {
+    return (
+      this.supportedChannels === 'W'
+        ? this.inputWhiteColor
+        : this.inputPrimaryColor
+    )
+  }
+
+  get valueRange (): ColorPickerValueRange {
+    return this.$store.state.config.uiSettings.general.colorPickerValueRange
+  }
+
+  set valueRange (value: ColorPickerValueRange) {
+    this.$store.dispatch('config/saveByPath', {
+      path: 'uiSettings.general.colorPickerValueRange',
+      value,
+      server: true
+    })
+  }
+
+  handleSubmitPrimary () {
+    this.inputPrimaryColor = this.currentPrimaryColor.hexString
+  }
+
+  handleSubmitWhite () {
+    this.inputWhiteValue = this.currentWhiteColor.red
+  }
+
+  handleReset () {
+    this.currentPrimaryColor.set(this.inputPrimaryColor)
+    this.currentWhiteColor.set(this.inputWhiteColor)
+  }
+
+  valueToHexColor (value: number): string {
+    value = Math.round(Math.min(Math.max(value, 0), 255))
+
+    return `#${value.toString(16).padStart(2, '0').repeat(3)}`
   }
 
   created () {
-    this.primaryColor = this.getColor(this.primary)
-    if (this.whiteColor) this.whiteColor = this.getColor(this.white)
-  }
-
-  getColor (color: string) {
-    const base = new iro.Color(color)
-    return {
-      hexString: base.hexString,
-      rgb: {
-        r: base.rgb.r,
-        g: base.rgb.g,
-        b: base.rgb.b
-      }
-    }
-  }
-
-  handleColorChange (channel: string, color: IroColor) {
-    const c = this.getColor(color.hexString)
-    if (channel === 'primary') {
-      this.primaryColor = c
-    } else {
-      this.whiteColor = c
-    }
-
-    this.$emit(`update:${channel}`, color)
-    this.debouncedChange(channel, color)
-  }
-
-  @Debounce(500)
-  debouncedChange (channel: string, color: IroColor) {
-    this.$emit('change', { channel, color })
+    this.handleReset()
   }
 
   startMouseDrag (event: MouseEvent) {
@@ -299,10 +350,12 @@ export default class AppColorPicker extends Vue {
   }
 
   relativeMove (newPosition: PointerPosition) {
-    const parent = this.card.$el.parentElement as HTMLElement
+    const parent = this.card.$el.parentElement
 
-    parent.style.left = (parseFloat(parent.style.left) + (newPosition.x - this.lastPointerPosition.x)) + 'px'
-    parent.style.top = (parseFloat(parent.style.top) + (newPosition.y - this.lastPointerPosition.y)) + 'px'
+    if (parent) {
+      parent.style.left = (parseFloat(parent.style.left) + (newPosition.x - this.lastPointerPosition.x)) + 'px'
+      parent.style.top = (parseFloat(parent.style.top) + (newPosition.y - this.lastPointerPosition.y)) + 'px'
+    }
   }
 
   mouseMove (event: MouseEvent) {
@@ -317,10 +370,22 @@ export default class AppColorPicker extends Vue {
     this.relativeMove(newPosition)
     this.lastPointerPosition = newPosition
   }
+
+  convertValueRange (value: number, direction: 'in' | 'out') {
+    if (this.valueRange === 'absolute') return value
+
+    let factor = 1
+    if (this.valueRange === 'percentage') factor = 255
+    if (direction === 'out') factor = 1 / factor
+
+    return Math.round(value * factor * 1000) / 1000
+  }
 }
 </script>
 
 <style lang="scss" scoped>
+  @import 'vuetify/src/styles/styles.sass';
+
   .color-input div {
     margin: 0 2px;
     text-align: center;
@@ -334,11 +399,11 @@ export default class AppColorPicker extends Vue {
     color: rgba(map-get($material-dark, 'text-color'), 0.45);
   }
 
-  ::v-deep .v-text-field__slot input {
+  :deep(.v-text-field__slot input) {
     text-align: center;
   }
 
-  ::v-deep .v-input--dense .v-input__slot {
+  :deep(.v-input--dense .v-input__slot) {
     min-height: 32px !important;
   }
 </style>

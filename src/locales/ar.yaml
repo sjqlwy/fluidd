@@ -17,17 +17,13 @@ app:
       not_loaded: لم يتم تحميل شبكة
     tooltip:
       calibrate: Begins a new calibration, saving as profile 'default'
-      delete: Delete Profile. This WILL restart your printer
+      delete: Delete Profile
       load: Load Profile
-      save: >-
-        Commits calibrated profile to printer.cfg. This WILL restart your
-        printer
+      save: Commits calibrated profile to printer.cfg
   chart:
     label:
       current: درجة الحرارة
       item: الاسم
-      'off': اخفاء الرسم البياني
-      'on': عرض الرسم البياني
       power: الطاقة
       target: الهدف
     tooltip:
@@ -70,7 +66,6 @@ app:
     filters:
       label:
         print_start_time: Filter printed
-        print_start_time_desc: Filters out items you've already printed.
     label:
       dir_name: اسم المجلد
       disk_usage: استخدام قرص التخزين
@@ -80,16 +75,12 @@ app:
       transfer_rate: معدل النقل
       uploaded: مرفوع
     msg:
-      confirm: هل انت متأكد؟ سيتم حذف جميع المجلدات والملفات
       not_found: لا يوجد ملفات
       processing: جاري المعالجة
-    overlay:
-      label: <strong>الق</strong> ملف هنا
     title:
       add_dir: اضافة مجلد
       add_file: اضافة ملف
       download_file: جاري جلب الملف
-      keyboard_shortcuts: اختصارات لوحة المفاتيح
       rename_dir: اعادة تسمية مجلد
       rename_file: اعادة تسمية ملف
       upload_file: جاري رفع الملف | جاري رفع الملفات
@@ -225,7 +216,6 @@ app:
       uncategorized: غير مصنف
       unretract_speed: سرعة الكسر
       used: مستخدم
-      variance: التباين
       velocity: السرعة
       visible: ظاهر
       z_offset: موازنة Z
@@ -299,8 +289,6 @@ app:
       reload_klipper: اعادة تحميل تكوين klipper.
       reload_restart_klipper: اعادة تحميل تكوين klipper واعادة تشغيل الطابعة.
       restart_klipper: اعادة تشغيل خدمة klipper الخاصة بالنظام
-  history:
-    msg: {}
   printer:
     state:
       busy: مشغولة
@@ -328,7 +316,6 @@ app:
       camera_flip_x: عكس افقي
       camera_flip_y: عكس عمودي
       camera_stream_type: نوع البث
-      camera_url: رابط الكاميرا
       confirm_on_estop: ايقاف الطوارئ يحتاج تأكيد
       dark_mode: الوضع الداكن
       default_extrude_length: Default extrude length
@@ -377,7 +364,8 @@ app:
   socket:
     msg:
       connecting: Connecting to moonraker...
-      no_connection: No moonraker connection. Please check moonraker status and / or refresh.
+      no_connection: No moonraker connection. Please check moonraker status and /
+        or refresh.
   system_info:
     label:
       capacity: السعة

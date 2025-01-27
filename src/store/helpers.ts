@@ -1,55 +1,41 @@
-import {
-  Thumbnail
-} from './files/types'
+import type { Commit, Dispatch } from 'vuex'
+import type { RootState } from './types'
 import { SocketActions } from '@/api/socketActions'
-import store from '@/store'
+import type { AppPushNotification } from './notifications/types'
+import i18n from '@/plugins/i18n'
+import type { KlippyApp } from './printer/types'
 
-export const isOfType = <T> (
-  varToBeChecked: any,
-  propertyToCheckFor: keyof T
-): varToBeChecked is T => (varToBeChecked as T)[propertyToCheckFor] !== undefined
+export const handleTrinamicDriversChange = (payload: any, state: RootState, dispatch: Dispatch, getters: any) => {
+  for (const item in payload) {
+    const [type, nameFromSplit] = item.split(' ', 2)
 
-/**
- * Return a file thumb if one exists
- * Optionally, pick the largest or smallest image.
- */
-export const getThumb = (thumbnails: Thumbnail[], path: string, large = true) => {
-  const apiUrl = store.state.config?.apiUrl
-  if (thumbnails.length) {
-    let thumb: Thumbnail | undefined
-    if (thumbnails) {
-      if (large) {
-        thumb = thumbnails.reduce((a, c) => (a.size && c.size && (a.size > c.size)) ? a : c)
-      } else {
-        thumb = thumbnails.reduce((a, c) => (a.size && c.size && (a.size < c.size)) ? a : c)
+    if (
+      /^tmc\d{4}$/.test(type) &&
+      payload[item]?.drv_status?.otpw != null &&
+      state.printer.printer?.[item]?.drv_status?.otpw == null
+    ) {
+      const name = nameFromSplit ?? item
+
+      const klippyApp = getters.getKlippyApp as KlippyApp
+
+      const notification: AppPushNotification = {
+        id: `${item}-otpw`,
+        title: i18n.t('app.printer.title.stepper_driver_overheating', { name }).toString(),
+        description: i18n.t('app.printer.msg.possible_print_failure').toString(),
+        to: i18n.t('app.printer.url.stepper_driver_overheating', { klipperDomain: klippyApp.domain }).toString(),
+        type: 'error',
+        snackbar: true,
+        merge: true,
+        clear: true,
+        noCount: true
       }
-      if (thumb) {
-        if (thumb.relative_path && thumb.relative_path.length > 0) {
-          const url = new URL(apiUrl ?? document.location.origin)
-          url.pathname = (path === '')
-            ? `/server/files/gcodes/${encodeURI(thumb.relative_path)}`
-            : `/server/files/gcodes/${encodeURI(path)}/${encodeURI(thumb.relative_path)}`
 
-          return {
-            ...thumb,
-            absolute_path: url.toString()
-          }
-        }
-        if (thumb.data) {
-          return {
-            ...thumb,
-            data: 'data:image/gif;base64,' + thumb.data
-          }
-        }
-        if (thumb.absolute_path) {
-          return thumb
-        }
-      }
+      dispatch('notifications/pushNotification', notification, { root: true })
     }
   }
 }
 
-export const handlePrintStateChange = (payload: any) => {
+export const handlePrintStateChange = (payload: any, state: RootState, dispatch: Dispatch) => {
   // For every notify - if print_stats.state changes from standby -> printing,
   // then record an entry in our print history.
   // If the state changes from printing -> complete, then record the finish time.
@@ -58,34 +44,34 @@ export const handlePrintStateChange = (payload: any) => {
     'state' in payload.print_stats
   ) {
     if (
-      store.state.printer?.printer.print_stats.state === 'standby' &&
+      state.printer.printer.print_stats.state !== 'printing' &&
       payload.print_stats.state === 'printing'
     ) {
       // This is a new print starting...
-      store.dispatch('printer/onPrintStart', payload)
+      dispatch('printer/onPrintStart', payload, { root: true })
     } else if (
-      store.state.printer?.printer.print_stats.state === 'printing' &&
+      state.printer.printer.print_stats.state === 'printing' &&
       payload.print_stats.state === 'complete'
     ) {
       // This is a completed print...
-      store.dispatch('printer/onPrintEnd', payload)
+      dispatch('printer/onPrintEnd', payload, { root: true })
     } else if (
-      store.state.printer?.printer.print_stats.state === 'printing' &&
+      state.printer.printer.print_stats.state === 'printing' &&
       payload.print_stats.state === 'standby'
     ) {
       // This is a cancelled print...
-      store.dispatch('printer/onPrintEnd', payload)
+      dispatch('printer/onPrintEnd', payload, { root: true })
     }
   }
 }
 
-export const handleCurrentFileChange = (payload: any) => {
+export const handleCurrentFileChange = (payload: any, state: RootState, commit: Commit) => {
   if (
     'print_stats' in payload &&
     'filename' in payload.print_stats &&
-    payload.print_stats.filename !== store.state.printer?.printer.print_stats.filename
+    payload.print_stats.filename !== state.printer.printer.print_stats.filename
   ) {
-    store.commit('printer/setResetCurrentFile')
+    commit('printer/setResetCurrentFile', undefined, { root: true })
     if (
       payload.print_stats.filename !== '' &&
       payload.print_stats.filename !== null
@@ -93,7 +79,7 @@ export const handleCurrentFileChange = (payload: any) => {
       // This refreshes the metadata for the current file, which also
       // ensures we update the current_file with the latest data via
       // the files/onFileUpdate action.
-      SocketActions.serverFilesMetaData(payload.print_stats.filename)
+      SocketActions.serverFilesMetadata(payload.print_stats.filename)
     }
   }
 }

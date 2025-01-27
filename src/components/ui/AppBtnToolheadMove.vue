@@ -5,7 +5,7 @@
     <template #activator="{ on, attrs }">
       <app-btn
         :disabled="disabled"
-        :min-width="40"
+        min-width="40"
         :loading="loading"
         :color="color"
         v-bind="(tooltip !== '') ? attrs : undefined"
@@ -33,25 +33,22 @@ import { Component, Vue, Prop } from 'vue-property-decorator'
 @Component({})
 export default class AppBtnToolheadMove extends Vue {
   @Prop({ type: String, required: true })
-  icon!: string
+  readonly icon!: string
 
-  @Prop()
-  disabled!: boolean
+  @Prop({ type: Boolean })
+  readonly disabled?: boolean
 
   @Prop({ type: String, default: 'btncolor' })
-  color!: string
+  readonly color!: string
 
-  @Prop({ type: Boolean, default: false })
-  loading!: boolean
-
-  @Prop({ type: String, default: '' })
-  badge!: string
+  @Prop({ type: Boolean })
+  readonly loading?: boolean
 
   @Prop({ type: String, default: '' })
-  tooltip!: string
+  readonly tooltip!: string
 
-  @Prop({ type: Boolean, default: false })
-  smallIcon!: boolean
+  @Prop({ type: Boolean })
+  readonly smallIcon?: boolean
 
   get hasDefaultSlot () {
     return !!this.$slots.default || !!this.$scopedSlots.default

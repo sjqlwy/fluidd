@@ -4,17 +4,23 @@ import { Component } from 'vue-property-decorator'
 
 @Component
 export default class ServicesMixin extends Vue {
+  get moonrakerServiceName (): string {
+    const moonrakerServiceName: string | undefined = this.$store.state.server.system_info?.instance_ids?.moonraker
+
+    return moonrakerServiceName || 'moonraker'
+  }
+
+  get klipperServiceName (): string {
+    const klipperServiceName: string | undefined = this.$store.state.server.system_info?.instance_ids?.klipper
+
+    return klipperServiceName || 'klipper'
+  }
+
   /**
    * Resets the UI when restarting/resetting Klipper
    */
   async _klipperReset () {
-    this.$store.commit('socket/setAcceptNotifications', false)
-    await this.$store.dispatch('reset', [
-      'server',
-      'printer',
-      'charts',
-      'wait'
-    ], { root: true })
+    await this.$store.dispatch('resetKlippy', undefined, { root: true })
   }
 
   /**
@@ -35,25 +41,25 @@ export default class ServicesMixin extends Vue {
    * Restart the klipper service itself.
    */
   async serviceRestartKlipper () {
-    this.serviceRestartByName('klipper')
+    this.serviceRestartByName(this.klipperServiceName)
   }
 
   /**
    * Restart the moonraker service itself.
    */
   serviceRestartMoonraker () {
-    this.serviceRestartByName('moonraker')
+    this.serviceRestartByName(this.moonrakerServiceName)
   }
 
   /**
    * Restart a service by name.
    */
   async serviceRestartByName (name: string) {
-    if (name === 'moonraker') {
+    if (name === this.moonrakerServiceName) {
       SocketActions.serverRestart()
       this.$store.commit('socket/setSocketDisconnecting', true)
     } else {
-      if (name === 'klipper') {
+      if (name === this.klipperServiceName) {
         await this._klipperReset()
       }
 
@@ -72,10 +78,10 @@ export default class ServicesMixin extends Vue {
    * Stop a service by name.
    */
   async serviceStopByName (name: string) {
-    if (name === 'moonraker') {
+    if (name === this.moonrakerServiceName) {
       throw new Error('Stopping the moonraker service is not supported')
     } else {
-      if (name === 'klipper') {
+      if (name === this.klipperServiceName) {
         await this._klipperReset()
       }
 

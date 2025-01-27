@@ -1,11 +1,13 @@
 import vuetify from '@/plugins/vuetify'
-import { ActionTree } from 'vuex'
-import { ConfigState, SaveByPath, InitConfig, InstanceConfig, UiSettings } from './types'
-import { RootState } from '../types'
+import type { ActionTree } from 'vuex'
+import type { ConfigState, SaveByPath, InitConfig, InstanceConfig, UiSettings, ThemeConfig } from './types'
+import type { RootState } from '../types'
 import { SocketActions } from '@/api/socketActions'
 import { loadLocaleMessagesAsync, getStartingLocale } from '@/plugins/i18n'
 import { Waits } from '@/globals'
-import { AppTableHeader } from '@/types'
+import type { FileFilterType } from '../files/types'
+import { TinyColor } from '@ctrl/tinycolor'
+import type { AppTablePartialHeader } from '@/types/tableheaders'
 
 export const actions: ActionTree<ConfigState, RootState> = {
   /**
@@ -18,14 +20,13 @@ export const actions: ActionTree<ConfigState, RootState> = {
   /**
    * Init any file configs we may have.
    */
-  async initUiSettings ({ commit, dispatch, state }, payload: UiSettings) {
+  async initUiSettings ({ commit, dispatch, state }, payload: Partial<UiSettings>) {
     commit('setInitUiSettings', payload)
 
-    // Set vuetify to the correct initial theme.
-    if (state.uiSettings.theme) {
-      vuetify.framework.theme.dark = state.uiSettings.theme.isDark
-      vuetify.framework.theme.currentTheme.primary = state.uiSettings.theme.currentTheme.primary
-    }
+    // Vuetify sometimes fails to apply the changes in a single operation but
+    // doing it twice fixes it
+    dispatch('onThemeChange', state.uiSettings.theme)
+    dispatch('onThemeChange', state.uiSettings.theme)
 
     // Set the correct language.
     if (
@@ -34,6 +35,19 @@ export const actions: ActionTree<ConfigState, RootState> = {
     ) {
       dispatch('onLocaleChange', payload.general.locale)
     }
+  },
+
+  async onThemeChange (_, payload: ThemeConfig) {
+    const vuetifyTheme = vuetify.framework.theme
+
+    vuetifyTheme.dark = payload.isDark
+    vuetifyTheme.currentTheme.primary = payload.color
+    vuetifyTheme.currentTheme['primary-offset'] = new TinyColor(payload.color)
+      .desaturate(5)
+      .darken(10)
+      .toHexString()
+    vuetifyTheme.themes.dark.logo = payload.logo.light
+    vuetifyTheme.themes.light.logo = payload.logo.dark
   },
 
   /**
@@ -109,7 +123,10 @@ export const actions: ActionTree<ConfigState, RootState> = {
     // Now, find the instance in our instance list and update there.
     let instance = getters.getCurrentInstance
     if (instance) {
-      instance = { ...instance, ...{ name: state.uiSettings.general.instanceName } }
+      instance = {
+        ...instance,
+        name: state.uiSettings.general.instanceName
+      }
       // update the instance item...
       commit('setUpdateInstanceName', instance)
     }
@@ -142,13 +159,50 @@ export const actions: ActionTree<ConfigState, RootState> = {
     SocketActions.serverWrite('uiSettings.dashboard.tempPresets', state.uiSettings.dashboard.tempPresets)
   },
 
+  async updateFileSystemActiveFilters ({ commit, state }, payload: { root: string, value: FileFilterType[] }) {
+    commit('setFileSystemActiveFilters', payload)
+    SocketActions.serverWrite(`uiSettings.fileSystem.activeFilters.${payload.root}`, state.uiSettings.fileSystem.activeFilters[payload.root])
+  },
+
+  async updateFileSystemSortBy ({ commit, state }, payload: { root: string, value: string | null }) {
+    commit('setFileSystemSortBy', payload)
+    SocketActions.serverWrite(`uiSettings.fileSystem.sortBy.${payload.root}`, state.uiSettings.fileSystem.sortBy[payload.root])
+  },
+
+  async updateFileSystemSortDesc ({ commit, state }, payload: { root: string, value: boolean | null }) {
+    commit('setFileSystemSortDesc', payload)
+    SocketActions.serverWrite(`uiSettings.fileSystem.sortDesc.${payload.root}`, state.uiSettings.fileSystem.sortDesc[payload.root])
+  },
+
   /**
    * Toggle a tables header state based on its name and key.
    */
-  async updateHeader ({ commit, state }, payload: { name: string; header: AppTableHeader }) {
+  async updateHeader ({ commit, state }, payload: { name: string; header: AppTablePartialHeader }) {
     commit('setUpdateHeader', payload)
     if (state.uiSettings.tableHeaders[payload.name]) {
       SocketActions.serverWrite(`uiSettings.tableHeaders.${payload.name}`, state.uiSettings.tableHeaders[payload.name])
     }
+  },
+
+  async updateHeaders ({ commit, state }, payload: { name: string; headers: AppTablePartialHeader[] }) {
+    commit('setUpdateHeaders', payload)
+    if (state.uiSettings.tableHeaders[payload.name]) {
+      SocketActions.serverWrite(`uiSettings.tableHeaders.${payload.name}`, state.uiSettings.tableHeaders[payload.name])
+    }
+  },
+
+  async updateTheme ({ state, dispatch }, payload: Partial<ThemeConfig>) {
+    const updatedTheme: ThemeConfig = {
+      ...state.uiSettings.theme,
+      ...payload
+    }
+
+    dispatch('onThemeChange', updatedTheme)
+
+    dispatch('saveByPath', {
+      path: 'uiSettings.theme',
+      value: updatedTheme,
+      server: true
+    })
   }
 }

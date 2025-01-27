@@ -24,34 +24,27 @@
 
 <script lang="ts">
 import Vue from 'vue'
-import { Component, Prop } from 'vue-property-decorator'
+import { Component, Prop, VModel } from 'vue-property-decorator'
+import type { FlashMessageTypes } from '@/types'
 
 @Component({})
 export default class FlashMessage extends Vue {
-  @Prop({ type: Boolean })
-  value!: boolean;
+  @VModel({ type: Boolean })
+  open?: boolean
 
   @Prop({ type: String, default: 'dark' })
-  type!: string;
+  readonly type!: FlashMessageTypes
 
   @Prop({ type: String, default: 'Saved!' })
-  text!: string;
+  readonly text!: string
 
   @Prop({ type: Number, default: 1500 })
-  timeout!: number;
-
-  get open () {
-    return this.$props.value
-  }
-
-  set open (value: boolean) {
-    this.$emit('input', value)
-  }
+  readonly timeout!: number
 }
 </script>
 
 <style lang="scss" scoped>
-  ::v-deep .v-snack__wrapper .v-snack__content {
+  :deep(.v-snack__wrapper .v-snack__content) {
     overflow: hidden;
     overflow-wrap: break-word;
   }
